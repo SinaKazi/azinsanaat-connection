@@ -491,7 +491,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                     if ($status_code === 403) {
                         return new WP_Error(
                             'azinsanaat_forbidden',
-                            __('کلیدهای API اجازه مشاهده این بخش را ندارند. سطح دسترسی خواندن را در ووکامرس بررسی کنید.', 'azinsanaat-connection')
+                            __('کلیدهای API اجازه مشاهده این بخش را ندارند. در ووکامرس (ووکامرس ← تنظیمات ← پیشرفته ← REST API) سطح دسترسی را روی «خواندن» یا «خواندن/نوشتن» تنظیم کنید.', 'azinsanaat-connection')
                         );
                     }
 
