@@ -480,8 +480,19 @@ if (!class_exists('Azinsanaat_Connection')) {
                         return $response;
                     }
 
-                    if (wp_remote_retrieve_response_code($response) === 401) {
-                        return new WP_Error('azinsanaat_unauthorized', __('دسترسی به API امکان‌پذیر نیست. کلیدها را بررسی کنید.', 'azinsanaat-connection'));
+                    $status_code = wp_remote_retrieve_response_code($response);
+                    if ($status_code === 401) {
+                        return new WP_Error(
+                            'azinsanaat_unauthorized',
+                            __('دسترسی به API امکان‌پذیر نیست. کلیدها را بررسی کنید.', 'azinsanaat-connection')
+                        );
+                    }
+
+                    if ($status_code === 403) {
+                        return new WP_Error(
+                            'azinsanaat_forbidden',
+                            __('کلیدهای API اجازه مشاهده این بخش را ندارند. سطح دسترسی خواندن را در ووکامرس بررسی کنید.', 'azinsanaat-connection')
+                        );
                     }
 
                     return $response;
