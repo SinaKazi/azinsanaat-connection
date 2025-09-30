@@ -220,21 +220,44 @@ if (!class_exists('Azinsanaat_Connection')) {
             if (is_wp_error($client)) {
                 $error_message = $client->get_error_message();
             } else {
-                $response = $client->get('products', ['per_page' => 50, 'status' => 'publish']);
-                if (is_wp_error($response)) {
-                    $error_message = $response->get_error_message();
-                } else {
+                $page = 1;
+                $per_page = 100;
+                $all_products = [];
+
+                do {
+                    $response = $client->get('products', [
+                        'per_page' => $per_page,
+                        'page'     => $page,
+                        'status'   => 'any',
+                    ]);
+
+                    if (is_wp_error($response)) {
+                        $error_message = $response->get_error_message();
+                        break;
+                    }
+
                     $status = wp_remote_retrieve_response_code($response);
-                    if ($status >= 200 && $status < 300) {
-                        $products = json_decode(wp_remote_retrieve_body($response), true);
-                        if (!is_array($products)) {
-                            $products = [];
-                            $error_message = __('پاسخ نامعتبر از سرور دریافت شد.', 'azinsanaat-connection');
-                        }
-                    } else {
+                    if ($status < 200 || $status >= 300) {
                         $body = json_decode(wp_remote_retrieve_body($response), true);
                         $error_message = $body['message'] ?? sprintf(__('پاسخ نامعتبر از سرور (کد: %s).', 'azinsanaat-connection'), $status);
+                        break;
                     }
+
+                    $batch = json_decode(wp_remote_retrieve_body($response), true);
+                    if (!is_array($batch)) {
+                        $error_message = __('پاسخ نامعتبر از سرور دریافت شد.', 'azinsanaat-connection');
+                        break;
+                    }
+
+                    if (!empty($batch)) {
+                        $all_products = array_merge($all_products, $batch);
+                    }
+
+                    $page++;
+                } while (!empty($batch) && count($batch) === $per_page);
+
+                if (!$error_message) {
+                    $products = $all_products;
                 }
             }
 
@@ -254,18 +277,24 @@ if (!class_exists('Azinsanaat_Connection')) {
                     <table class="widefat striped">
                         <thead>
                         <tr>
+                            <th><?php esc_html_e('ردیف', 'azinsanaat-connection'); ?></th>
                             <th><?php esc_html_e('شناسه', 'azinsanaat-connection'); ?></th>
                             <th><?php esc_html_e('نام', 'azinsanaat-connection'); ?></th>
                             <th><?php esc_html_e('قیمت', 'azinsanaat-connection'); ?></th>
+                            <th><?php esc_html_e('وضعیت موجودی', 'azinsanaat-connection'); ?></th>
+                            <th><?php esc_html_e('تعداد موجودی', 'azinsanaat-connection'); ?></th>
                             <th><?php esc_html_e('عملیات', 'azinsanaat-connection'); ?></th>
                         </tr>
                         </thead>
                         <tbody>
-                        <?php foreach ($products as $product) : ?>
+                        <?php foreach ($products as $index => $product) : ?>
                             <tr>
+                                <td><?php echo esc_html($index + 1); ?></td>
                                 <td><?php echo esc_html($product['id']); ?></td>
                                 <td><?php echo esc_html($product['name']); ?></td>
                                 <td><?php echo isset($product['price']) ? esc_html($product['price']) : '—'; ?></td>
+                                <td><?php echo esc_html(self::format_stock_status($product['stock_status'] ?? '')); ?></td>
+                                <td><?php echo isset($product['stock_quantity']) ? esc_html($product['stock_quantity']) : '—'; ?></td>
                                 <td>
                                     <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
                                         <?php wp_nonce_field(self::NONCE_ACTION_IMPORT); ?>
@@ -390,11 +419,14 @@ if (!class_exists('Azinsanaat_Connection')) {
                 }
             }
 
+            $short_description = isset($data['short_description']) ? wp_kses_post($data['short_description']) : '';
+            $short_description = preg_replace('/<img[^>]*>/i', '', $short_description);
+
             $post_data = [
                 'post_title'   => wp_strip_all_tags($name),
                 'post_status'  => 'pending',
                 'post_type'    => 'product',
-                'post_excerpt' => isset($data['short_description']) ? wp_kses_post($data['short_description']) : '',
+                'post_excerpt' => $short_description,
                 'post_content' => isset($data['description']) ? wp_kses_post($data['description']) : '',
             ];
 
@@ -445,7 +477,60 @@ if (!class_exists('Azinsanaat_Connection')) {
             $manage_stock = !empty($data['manage_stock']) ? 'yes' : 'no';
             update_post_meta($post_id, '_manage_stock', $manage_stock);
 
+            if (!empty($data['images']) && is_array($data['images'])) {
+                foreach ($data['images'] as $image) {
+                    $image_url = $image['src'] ?? '';
+                    if (!$image_url) {
+                        continue;
+                    }
+
+                    $attachment_id = self::set_featured_image_from_url($post_id, esc_url_raw($image_url));
+                    if (!is_wp_error($attachment_id) && $attachment_id) {
+                        break;
+                    }
+                }
+            }
+
             return $post_id;
+        }
+
+        protected static function set_featured_image_from_url(int $post_id, string $image_url)
+        {
+            if (empty($image_url)) {
+                return false;
+            }
+
+            if (!function_exists('media_sideload_image')) {
+                require_once ABSPATH . 'wp-admin/includes/media.php';
+                require_once ABSPATH . 'wp-admin/includes/file.php';
+                require_once ABSPATH . 'wp-admin/includes/image.php';
+            }
+
+            $attachment_id = media_sideload_image($image_url, $post_id, null, 'id');
+
+            if (is_wp_error($attachment_id)) {
+                return $attachment_id;
+            }
+
+            if ($attachment_id) {
+                set_post_thumbnail($post_id, $attachment_id);
+            }
+
+            return $attachment_id;
+        }
+
+        protected static function format_stock_status(string $status): string
+        {
+            switch ($status) {
+                case 'instock':
+                    return __('موجود', 'azinsanaat-connection');
+                case 'outofstock':
+                    return __('ناموجود', 'azinsanaat-connection');
+                case 'onbackorder':
+                    return __('در انتظار تأمین', 'azinsanaat-connection');
+                default:
+                    return $status !== '' ? $status : '—';
+            }
         }
 
         /**
