@@ -347,48 +347,55 @@ if (!class_exists('Azinsanaat_Connection')) {
             $client = self::get_api_client();
             $products = [];
             $error_message = '';
+            $current_page = isset($_GET['paged']) ? max(1, absint($_GET['paged'])) : 1;
+            $per_page = 20;
+            $search_query = isset($_GET['s']) ? sanitize_text_field(wp_unslash($_GET['s'])) : '';
+            $stock_filter = isset($_GET['stock_status']) ? sanitize_text_field(wp_unslash($_GET['stock_status'])) : '';
+            $allowed_stock_statuses = [
+                'instock'    => __('موجود', 'azinsanaat-connection'),
+                'outofstock' => __('ناموجود', 'azinsanaat-connection'),
+            ];
+            $stock_filter = array_key_exists($stock_filter, $allowed_stock_statuses) ? $stock_filter : '';
+            $total_pages = 1;
 
             if (is_wp_error($client)) {
                 $error_message = $client->get_error_message();
             } else {
-                $page = 1;
-                $per_page = 100;
-                $all_products = [];
+                $request_args = [
+                    'per_page' => $per_page,
+                    'page'     => $current_page,
+                    'status'   => 'any',
+                ];
 
-                do {
-                    $response = $client->get('products', [
-                        'per_page' => $per_page,
-                        'page'     => $page,
-                        'status'   => 'any',
-                    ]);
+                if ($search_query !== '') {
+                    $request_args['search'] = $search_query;
+                }
 
-                    if (is_wp_error($response)) {
-                        $error_message = $response->get_error_message();
-                        break;
-                    }
+                if ($stock_filter !== '') {
+                    $request_args['stock_status'] = $stock_filter;
+                }
 
+                $response = $client->get('products', $request_args);
+
+                if (is_wp_error($response)) {
+                    $error_message = $response->get_error_message();
+                } else {
                     $status = wp_remote_retrieve_response_code($response);
                     if ($status < 200 || $status >= 300) {
                         $body = json_decode(wp_remote_retrieve_body($response), true);
                         $error_message = $body['message'] ?? sprintf(__('پاسخ نامعتبر از سرور (کد: %s).', 'azinsanaat-connection'), $status);
-                        break;
+                    } else {
+                        $decoded = json_decode(wp_remote_retrieve_body($response), true);
+                        if (!is_array($decoded)) {
+                            $error_message = __('پاسخ نامعتبر از سرور دریافت شد.', 'azinsanaat-connection');
+                        } else {
+                            $products = $decoded;
+                            $total_pages = (int) wp_remote_retrieve_header($response, 'x-wp-totalpages');
+                            if ($total_pages < 1) {
+                                $total_pages = 1;
+                            }
+                        }
                     }
-
-                    $batch = json_decode(wp_remote_retrieve_body($response), true);
-                    if (!is_array($batch)) {
-                        $error_message = __('پاسخ نامعتبر از سرور دریافت شد.', 'azinsanaat-connection');
-                        break;
-                    }
-
-                    if (!empty($batch)) {
-                        $all_products = array_merge($all_products, $batch);
-                    }
-
-                    $page++;
-                } while (!empty($batch) && count($batch) === $per_page);
-
-                if (!$error_message) {
-                    $products = $all_products;
                 }
             }
 
@@ -427,6 +434,25 @@ if (!class_exists('Azinsanaat_Connection')) {
                 <?php if ($notice) : ?>
                     <div class="notice notice-<?php echo esc_attr($notice['type']); ?>"><p><?php echo esc_html($notice['message']); ?></p></div>
                 <?php endif; ?>
+                <form method="get" class="azinsanaat-connection__filters">
+                    <input type="hidden" name="page" value="azinsanaat-connection-products">
+                    <label for="azinsanaat-search" class="screen-reader-text"><?php esc_html_e('جستجو در محصولات', 'azinsanaat-connection'); ?></label>
+                    <input
+                        type="search"
+                        id="azinsanaat-search"
+                        name="s"
+                        value="<?php echo esc_attr($search_query); ?>"
+                        placeholder="<?php esc_attr_e('جستجو...', 'azinsanaat-connection'); ?>"
+                    >
+                    <label for="azinsanaat-stock-status" class="screen-reader-text"><?php esc_html_e('فیلتر وضعیت موجودی', 'azinsanaat-connection'); ?></label>
+                    <select id="azinsanaat-stock-status" name="stock_status">
+                        <option value=""><?php esc_html_e('همه وضعیت‌ها', 'azinsanaat-connection'); ?></option>
+                        <?php foreach ($allowed_stock_statuses as $value => $label) : ?>
+                            <option value="<?php echo esc_attr($value); ?>" <?php selected($stock_filter, $value); ?>><?php echo esc_html($label); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <?php submit_button(__('اعمال فیلتر', 'azinsanaat-connection'), 'secondary', '', false); ?>
+                </form>
                 <?php if (!$error_message && empty($products)) : ?>
                     <p><?php esc_html_e('هیچ محصولی یافت نشد.', 'azinsanaat-connection'); ?></p>
                 <?php elseif (!$error_message) : ?>
@@ -445,7 +471,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                         <tbody>
                         <?php foreach ($products as $index => $product) : ?>
                             <tr>
-                                <td><?php echo esc_html($index + 1); ?></td>
+                                <td><?php echo esc_html(($index + 1) + (($current_page - 1) * $per_page)); ?></td>
                                 <td><?php echo esc_html($product['id']); ?></td>
                                 <td><?php echo esc_html($product['name']); ?></td>
                                 <td><?php echo isset($product['price']) ? esc_html($product['price']) : '—'; ?></td>
@@ -478,6 +504,34 @@ if (!class_exists('Azinsanaat_Connection')) {
                         <?php endforeach; ?>
                         </tbody>
                     </table>
+                    <?php
+                    if ($total_pages > 1) {
+                        $base_url = menu_page_url('azinsanaat-connection-products', false);
+                        $query_args = [];
+
+                        if ($search_query !== '') {
+                            $query_args['s'] = $search_query;
+                        }
+
+                        if ($stock_filter !== '') {
+                            $query_args['stock_status'] = $stock_filter;
+                        }
+
+                        $pagination = paginate_links([
+                            'base'      => esc_url_raw(add_query_arg(array_merge($query_args, ['paged' => '%#%']), $base_url)),
+                            'format'    => '',
+                            'total'     => max(1, $total_pages),
+                            'current'   => $current_page,
+                            'prev_text' => __('« قبلی', 'azinsanaat-connection'),
+                            'next_text' => __('بعدی »', 'azinsanaat-connection'),
+                            'type'      => 'list',
+                        ]);
+
+                        if ($pagination) {
+                            echo wp_kses_post($pagination);
+                        }
+                    }
+                    ?>
                 <?php endif; ?>
             </div>
             <?php
