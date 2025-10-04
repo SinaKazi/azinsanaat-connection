@@ -755,12 +755,9 @@ if (!class_exists('Azinsanaat_Connection')) {
             }
 
             if (!empty($data['categories']) && is_array($data['categories'])) {
-                $category_names = array_map(function ($category) {
-                    return $category['name'] ?? '';
-                }, $data['categories']);
-                $category_names = array_filter($category_names);
-                if (!empty($category_names)) {
-                    wp_set_object_terms($post_id, $category_names, 'product_cat');
+                $category_ids = self::resolve_existing_term_ids($data['categories'], 'product_cat');
+                if (!empty($category_ids)) {
+                    wp_set_object_terms($post_id, $category_ids, 'product_cat');
                 }
             }
 
@@ -792,6 +789,40 @@ if (!class_exists('Azinsanaat_Connection')) {
             }
 
             return $post_id;
+        }
+
+        /**
+         * Finds existing term IDs for the provided term data without creating new terms.
+         */
+        protected static function resolve_existing_term_ids(array $terms, string $taxonomy): array
+        {
+            $term_ids = [];
+
+            foreach ($terms as $term_data) {
+                if (!is_array($term_data)) {
+                    continue;
+                }
+
+                $name = isset($term_data['name']) ? trim(wp_strip_all_tags((string) $term_data['name'])) : '';
+                if ($name === '') {
+                    continue;
+                }
+
+                $term = get_term_by('name', $name, $taxonomy);
+                if (!$term || is_wp_error($term)) {
+                    $slug_source = isset($term_data['slug']) ? (string) $term_data['slug'] : $name;
+                    $slug = sanitize_title($slug_source);
+                    if ($slug) {
+                        $term = get_term_by('slug', $slug, $taxonomy);
+                    }
+                }
+
+                if ($term && !is_wp_error($term)) {
+                    $term_ids[] = (int) $term->term_id;
+                }
+            }
+
+            return array_values(array_unique($term_ids));
         }
 
         public static function handle_manual_sync(): void
