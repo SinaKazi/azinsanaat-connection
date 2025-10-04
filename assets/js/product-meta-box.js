@@ -70,6 +70,7 @@
         }
 
         function renderSimpleResult(data) {
+            var strings = AzinsanaatProductMeta.strings;
             var html = '';
             html += '<p><strong>' + (data.product.name || '') + '</strong></p>';
             html += '<p>' + 'شناسه وب‌سرویس: ' + (data.remote_id || '—') + '</p>';
@@ -80,14 +81,72 @@
                 html += '<p>' + data.product.stock_status + '</p>';
             }
 
-            var $container = $('<div/>', { html: html });
-            var $button = $('<button/>', {
+            var $info = $('<div/>', { html: html });
+            var $actions = $('<div/>', { 'class': 'azinsanaat-simple-actions' });
+            var $simpleButton = $('<button/>', {
                 'class': 'button button-primary azinsanaat-connect-simple',
-                text: AzinsanaatProductMeta.strings.connectSimple,
+                text: strings.connectSimple,
                 'data-remote-id': data.remote_id
             });
 
-            $dynamic.empty().append($container).append($button);
+            $actions.append($simpleButton);
+
+            if (data.allow_simple_variation_link) {
+                var localVariations = data.local_variations || [];
+                if (localVariations.length) {
+                    var $wrapper = $('<div/>', { 'class': 'azinsanaat-simple-variation-wrapper' });
+                    $wrapper.append($('<p/>', {
+                        'class': 'description',
+                        text: strings.simpleVariationDescription
+                    }));
+
+                    var $select = $('<select/>', {
+                        'class': 'azinsanaat-simple-variation-select'
+                    });
+
+                    $select.append($('<option/>', {
+                        value: '',
+                        text: strings.selectVariationPlaceholder
+                    }).attr('data-base-text', strings.selectVariationPlaceholder)
+                        .attr('data-connected-remote-id', ''));
+
+                    localVariations.forEach(function (localVariation) {
+                        var baseLabel = localVariation.name || '';
+                        var label = baseLabel;
+                        if (localVariation.remote_id) {
+                            label += ' — #' + localVariation.remote_id;
+                        }
+
+                        var $option = $('<option/>', {
+                            value: localVariation.id,
+                            text: label
+                        }).attr('data-base-text', baseLabel)
+                            .attr('data-connected-remote-id', localVariation.remote_id ? localVariation.remote_id : '');
+
+                        if (localVariation.connected) {
+                            $option.prop('selected', true);
+                        }
+
+                        $select.append($option);
+                    });
+
+                    var $variationButton = $('<button/>', {
+                        'class': 'button button-secondary azinsanaat-connect-simple-variation',
+                        text: strings.connectSimpleToVariation,
+                        'data-remote-id': data.remote_id
+                    });
+
+                    $wrapper.append($select).append($variationButton);
+                    $actions.append($wrapper);
+                } else {
+                    $actions.append($('<p/>', {
+                        'class': 'description',
+                        text: strings.noVariationsFound
+                    }));
+                }
+            }
+
+            $dynamic.empty().append($info).append($actions);
         }
 
         function renderVariationsResult(data) {
@@ -253,6 +312,93 @@
                 }
             }).fail(function () {
                 addMessage('error', AzinsanaatProductMeta.strings.error);
+            }).always(function () {
+                disableButton($button, false);
+            });
+        });
+
+        $metaBox.on('click', '.azinsanaat-connect-simple-variation', function () {
+            var strings = AzinsanaatProductMeta.strings;
+            var remoteId = parseInt($(this).data('remote-id'), 10);
+            var $button = $(this);
+            var $select = $metaBox.find('.azinsanaat-simple-variation-select');
+            var variationId = parseInt($select.val(), 10);
+
+            if (!remoteId) {
+                addMessage('error', strings.invalidRemote);
+                return;
+            }
+
+            if (!variationId) {
+                addMessage('error', strings.selectVariationRequired);
+                return;
+            }
+
+            disableButton($button, true);
+
+            $.ajax({
+                url: AzinsanaatProductMeta.ajaxUrl,
+                method: 'POST',
+                dataType: 'json',
+                data: {
+                    action: 'azinsanaat_connect_simple_variation',
+                    nonce: AzinsanaatProductMeta.nonce,
+                    product_id: productId,
+                    remote_id: remoteId,
+                    variation_id: variationId
+                }
+            }).done(function (response) {
+                if (response.success) {
+                    $input.val(remoteId);
+                    addMessage('success', strings.success);
+
+                    if (response.data && response.data.last_sync) {
+                        var $lastSync = $staticInfo.find('.azinsanaat-last-sync span');
+                        if ($lastSync.length) {
+                            $lastSync.text(response.data.last_sync);
+                        }
+                    }
+
+                    var $currentRemote = $staticInfo.find('.azinsanaat-current-remote-id');
+                    if ($currentRemote.length) {
+                        $currentRemote.text(remoteId);
+                    }
+
+                    if ($select.length) {
+                        $select.find('option').each(function () {
+                            var $option = $(this);
+                            var value = parseInt($option.val(), 10);
+                            if (isNaN(value)) {
+                                return;
+                            }
+
+                            var baseText = $option.attr('data-base-text') || $option.text();
+                            if (!$option.attr('data-base-text')) {
+                                $option.attr('data-base-text', baseText);
+                            }
+
+                            var connectedRemote = $option.attr('data-connected-remote-id') || '';
+
+                            if (value === variationId) {
+                                connectedRemote = remoteId.toString();
+                            } else if (connectedRemote && parseInt(connectedRemote, 10) === remoteId) {
+                                connectedRemote = '';
+                            }
+
+                            $option.attr('data-connected-remote-id', connectedRemote);
+
+                            if (connectedRemote) {
+                                $option.text(baseText + ' — #' + connectedRemote);
+                            } else {
+                                $option.text(baseText);
+                            }
+                        });
+                    }
+                } else {
+                    addMessage('error', (response.data && response.data.message) || strings.error);
+                }
+            }).fail(function () {
+                addMessage('error', strings.error);
             }).always(function () {
                 disableButton($button, false);
             });
