@@ -134,6 +134,10 @@
         }
 
         function renderResult(data) {
+            if (data.remote_id) {
+                $input.val(data.remote_id);
+            }
+
             var currentId = data.current_remote_id || 0;
             var $currentRemote = $staticInfo.find('.azinsanaat-current-remote-id');
             if ($currentRemote.length) {

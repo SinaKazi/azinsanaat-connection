@@ -392,6 +392,31 @@ if (!class_exists('Azinsanaat_Connection')) {
                 }
             }
 
+            $connected_remote_ids = [];
+
+            if (!$error_message && !empty($products)) {
+                $connected_posts = get_posts([
+                    'post_type'      => 'product',
+                    'post_status'    => ['publish', 'pending', 'draft', 'private'],
+                    'posts_per_page' => -1,
+                    'fields'         => 'ids',
+                    'meta_query'     => [
+                        [
+                            'key'     => self::META_REMOTE_ID,
+                            'compare' => 'EXISTS',
+                        ],
+                    ],
+                ]);
+
+                foreach ($connected_posts as $connected_post_id) {
+                    $remote_id = (int) get_post_meta($connected_post_id, self::META_REMOTE_ID, true);
+
+                    if ($remote_id) {
+                        $connected_remote_ids[$remote_id] = $connected_post_id;
+                    }
+                }
+            }
+
             $notice = self::get_transient_message('azinsanaat_connection_import_notice');
             ?>
             <div class="wrap">
@@ -426,13 +451,28 @@ if (!class_exists('Azinsanaat_Connection')) {
                                 <td><?php echo isset($product['price']) ? esc_html($product['price']) : '—'; ?></td>
                                 <td><?php echo esc_html(self::format_stock_status($product['stock_status'] ?? '')); ?></td>
                                 <td><?php echo isset($product['stock_quantity']) ? esc_html($product['stock_quantity']) : '—'; ?></td>
+                                <?php
+                                $remote_product_id = (int) ($product['id'] ?? 0);
+                                $is_connected = $remote_product_id && isset($connected_remote_ids[$remote_product_id]);
+                                ?>
                                 <td>
                                     <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
                                         <?php wp_nonce_field(self::NONCE_ACTION_IMPORT); ?>
                                         <input type="hidden" name="action" value="azinsanaat_import_product">
                                         <input type="hidden" name="product_id" value="<?php echo esc_attr($product['id']); ?>">
-                                        <?php submit_button(__('دریافت و ساخت پیش‌نویس', 'azinsanaat-connection'), 'secondary', 'submit', false); ?>
+                                        <?php
+                                        submit_button(
+                                            __('دریافت و ساخت پیش‌نویس', 'azinsanaat-connection'),
+                                            'secondary',
+                                            'submit',
+                                            false,
+                                            $is_connected ? ['disabled' => 'disabled', 'aria-disabled' => 'true'] : []
+                                        );
+                                        ?>
                                     </form>
+                                    <?php if ($is_connected) : ?>
+                                        <p class="description"><?php esc_html_e('این محصول قبلاً متصل شده است.', 'azinsanaat-connection'); ?></p>
+                                    <?php endif; ?>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
