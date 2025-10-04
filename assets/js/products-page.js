@@ -1,0 +1,86 @@
+(function ($) {
+    'use strict';
+
+    var settings = (typeof AzinsanaatProductsPage !== 'undefined') ? AzinsanaatProductsPage : { messages: {} };
+
+    function renderMessage($container, type, message, editUrl) {
+        var messages = settings.messages || {};
+        $container
+            .removeClass('notice notice-success notice-error')
+            .addClass('notice inline')
+            .addClass(type === 'success' ? 'notice-success' : 'notice-error')
+            .empty();
+
+        var $paragraph = $('<p></p>').text(message || '');
+        $container.append($paragraph);
+
+        if (type === 'success' && editUrl) {
+            var $link = $('<a></a>')
+                .attr('href', editUrl)
+                .attr('target', '_blank')
+                .attr('rel', 'noopener')
+                .text(messages.editLinkLabel || '');
+
+            var $linkParagraph = $('<p></p>').append($link);
+            $container.append($linkParagraph);
+        }
+    }
+
+    $(document).on('submit', '.azinsanaat-import-form', function (event) {
+        var $form = $(this);
+
+        if ($form.find('.azinsanaat-import-button').is(':disabled')) {
+            return;
+        }
+
+        event.preventDefault();
+
+        var productId = parseInt($form.data('productId'), 10) || 0;
+        if (!productId) {
+            return;
+        }
+
+        var $button = $form.find('.azinsanaat-import-button');
+        var $spinner = $form.find('.spinner');
+        var $feedback = $form.find('.azinsanaat-import-feedback');
+        var nonce = $form.find('input[name="_wpnonce"]').val();
+        var success = false;
+
+        $feedback.removeClass('notice notice-success notice-error').empty();
+        $button.prop('disabled', true).attr('aria-disabled', 'true');
+        if ($spinner.length) {
+            $spinner.addClass('is-active');
+        }
+
+        $.ajax({
+            url: settings.ajaxUrl ? settings.ajaxUrl : window.ajaxurl,
+            method: 'POST',
+            dataType: 'json',
+            data: {
+                action: 'azinsanaat_import_product',
+                product_id: productId,
+                nonce: nonce
+            }
+        }).done(function (response) {
+            if (response && response.success) {
+                success = true;
+                renderMessage($feedback, 'success', response.data.message, response.data.edit_url || '');
+            } else {
+                var fallbackMessages = settings.messages || {};
+                var message = response && response.data && response.data.message ? response.data.message : fallbackMessages.genericError || '';
+                renderMessage($feedback, 'error', message);
+            }
+        }).fail(function () {
+            var fallback = (settings.messages && settings.messages.networkError) ? settings.messages.networkError : '';
+            renderMessage($feedback, 'error', fallback || '');
+        }).always(function () {
+            if ($spinner.length) {
+                $spinner.removeClass('is-active');
+            }
+
+            if (!success) {
+                $button.prop('disabled', false).removeAttr('aria-disabled');
+            }
+        });
+    });
+})(jQuery);
