@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Azinsanaat Connection
  * Description: اتصال به آذین صنعت و همگام‌سازی محصولات از طریق API ووکامرس.
- * Version:     1.2.0
+ * Version:     1.3.0
  * Author:      Sina Kazemi
  * Requires PHP: 7.4
  */
@@ -17,9 +17,12 @@ if (!class_exists('Azinsanaat_Connection')) {
         const OPTION_KEY = 'azinsanaat_connection_options';
         const NONCE_ACTION_TEST = 'azinsanaat_connection_test_connection';
         const NONCE_ACTION_IMPORT = 'azinsanaat_connection_import_product';
+        const NONCE_ACTION_META = 'azinsanaat_connection_product_meta';
+        const NONCE_ACTION_MANUAL_SYNC = 'azinsanaat_connection_manual_sync';
         const CRON_HOOK = 'azinsanaat_connection_sync_products';
         const META_REMOTE_ID = '_azinsanaat_remote_id';
         const META_LAST_SYNC = '_azinsanaat_last_synced';
+        const NOTICE_CONNECTED_PRODUCTS = 'azinsanaat_connection_connected_notice';
 
         /**
          * Bootstraps plugin hooks.
@@ -39,9 +42,14 @@ if (!class_exists('Azinsanaat_Connection')) {
             add_action('admin_init', [__CLASS__, 'register_settings']);
             add_action('admin_post_azinsanaat_test_connection', [__CLASS__, 'handle_test_connection']);
             add_action('admin_post_azinsanaat_import_product', [__CLASS__, 'handle_import_product']);
+            add_action('admin_post_azinsanaat_manual_sync', [__CLASS__, 'handle_manual_sync']);
             add_action('add_meta_boxes_product', [__CLASS__, 'register_product_meta_box']);
             add_action('save_post_product', [__CLASS__, 'handle_save_product']);
             add_action('admin_notices', [__CLASS__, 'display_product_sync_notice']);
+            add_action('admin_enqueue_scripts', [__CLASS__, 'enqueue_admin_assets']);
+            add_action('wp_ajax_azinsanaat_fetch_remote_product', [__CLASS__, 'ajax_fetch_remote_product']);
+            add_action('wp_ajax_azinsanaat_connect_simple_product', [__CLASS__, 'ajax_connect_simple_product']);
+            add_action('wp_ajax_azinsanaat_connect_product_variations', [__CLASS__, 'ajax_connect_product_variations']);
         }
 
         /**
@@ -95,6 +103,15 @@ if (!class_exists('Azinsanaat_Connection')) {
                 'manage_options',
                 'azinsanaat-connection-products',
                 [__CLASS__, 'render_products_page']
+            );
+
+            add_submenu_page(
+                'azinsanaat-connection',
+                __('محصولات متصل شده', 'azinsanaat-connection'),
+                __('محصولات متصل', 'azinsanaat-connection'),
+                'manage_options',
+                'azinsanaat-connection-linked-products',
+                [__CLASS__, 'render_connected_products_page']
             );
         }
 
@@ -215,6 +232,59 @@ if (!class_exists('Azinsanaat_Connection')) {
                 </form>
             </div>
             <?php
+        }
+
+        /**
+         * Enqueues admin assets for product edit screen.
+         */
+        public static function enqueue_admin_assets(string $hook): void
+        {
+            if (!in_array($hook, ['post.php', 'post-new.php'], true)) {
+                return;
+            }
+
+            $screen = get_current_screen();
+            if (!$screen || 'product' !== $screen->post_type) {
+                return;
+            }
+
+            global $post;
+            $post_id = ($post instanceof WP_Post) ? (int) $post->ID : 0;
+
+            wp_register_script(
+                'azinsanaat-product-meta',
+                plugin_dir_url(__FILE__) . 'assets/js/product-meta-box.js',
+                ['jquery'],
+                '1.3.0',
+                true
+            );
+
+            wp_localize_script(
+                'azinsanaat-product-meta',
+                'AzinsanaatProductMeta',
+                [
+                    'ajaxUrl'        => admin_url('admin-ajax.php'),
+                    'nonce'          => wp_create_nonce(self::NONCE_ACTION_META),
+                    'productId'      => $post_id,
+                    'currentRemoteId'=> $post_id ? (int) get_post_meta($post_id, self::META_REMOTE_ID, true) : 0,
+                    'strings'        => [
+                        'fetching'                  => __('در حال دریافت اطلاعات...', 'azinsanaat-connection'),
+                        'fetchButton'               => __('دریافت', 'azinsanaat-connection'),
+                        'connectSimple'             => __('اتصال و همگام‌سازی', 'azinsanaat-connection'),
+                        'saveVariations'            => __('ذخیره اتصال متغیرها', 'azinsanaat-connection'),
+                        'noVariationsFound'         => __('متغیری برای این محصول در ووکامرس یافت نشد.', 'azinsanaat-connection'),
+                        'selectVariationPlaceholder'=> __('انتخاب متغیر', 'azinsanaat-connection'),
+                        'success'                   => __('عملیات با موفقیت انجام شد.', 'azinsanaat-connection'),
+                        'error'                     => __('در انجام عملیات خطایی رخ داد.', 'azinsanaat-connection'),
+                        'duplicateVariation'        => __('هر متغیر ووکامرس فقط باید به یک متغیر وب‌سرویس متصل شود.', 'azinsanaat-connection'),
+                        'missingProduct'            => __('برای استفاده از این بخش ابتدا محصول را ذخیره کنید.', 'azinsanaat-connection'),
+                        'invalidRemote'             => __('شناسه محصول معتبر نیست.', 'azinsanaat-connection'),
+                        'noMappings'                => __('حداقل یک متغیر باید انتخاب شود.', 'azinsanaat-connection'),
+                    ],
+                ]
+            );
+
+            wp_enqueue_script('azinsanaat-product-meta');
         }
 
         /**
@@ -362,6 +432,81 @@ if (!class_exists('Azinsanaat_Connection')) {
                                         <input type="hidden" name="action" value="azinsanaat_import_product">
                                         <input type="hidden" name="product_id" value="<?php echo esc_attr($product['id']); ?>">
                                         <?php submit_button(__('دریافت و ساخت پیش‌نویس', 'azinsanaat-connection'), 'secondary', 'submit', false); ?>
+                                    </form>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php endif; ?>
+            </div>
+            <?php
+        }
+
+        public static function render_connected_products_page(): void
+        {
+            if (!current_user_can('manage_options')) {
+                return;
+            }
+
+            $connected_products = get_posts([
+                'post_type'      => 'product',
+                'post_status'    => ['publish', 'pending', 'draft', 'private'],
+                'posts_per_page' => -1,
+                'fields'         => 'ids',
+                'meta_query'     => [
+                    [
+                        'key'     => self::META_REMOTE_ID,
+                        'compare' => 'EXISTS',
+                    ],
+                ],
+                'orderby'        => 'title',
+                'order'          => 'ASC',
+            ]);
+
+            $notice = self::get_transient_message(self::NOTICE_CONNECTED_PRODUCTS);
+            ?>
+            <div class="wrap">
+                <h1><?php esc_html_e('محصولات متصل شده به وب‌سرویس', 'azinsanaat-connection'); ?></h1>
+                <?php if ($notice) : ?>
+                    <div class="notice notice-<?php echo esc_attr($notice['type']); ?>"><p><?php echo esc_html($notice['message']); ?></p></div>
+                <?php endif; ?>
+                <?php if (empty($connected_products)) : ?>
+                    <p><?php esc_html_e('هنوز هیچ محصولی به وب‌سرویس متصل نشده است.', 'azinsanaat-connection'); ?></p>
+                <?php else : ?>
+                    <table class="widefat striped">
+                        <thead>
+                        <tr>
+                            <th><?php esc_html_e('ردیف', 'azinsanaat-connection'); ?></th>
+                            <th><?php esc_html_e('نام محصول', 'azinsanaat-connection'); ?></th>
+                            <th><?php esc_html_e('شناسه وب‌سرویس', 'azinsanaat-connection'); ?></th>
+                            <th><?php esc_html_e('تعداد متغیرهای متصل', 'azinsanaat-connection'); ?></th>
+                            <th><?php esc_html_e('آخرین همگام‌سازی', 'azinsanaat-connection'); ?></th>
+                            <th><?php esc_html_e('عملیات', 'azinsanaat-connection'); ?></th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <?php foreach ($connected_products as $index => $product_id) :
+                            $remote_id = (int) get_post_meta($product_id, self::META_REMOTE_ID, true);
+                            $last_sync = self::get_formatted_sync_time($product_id);
+                            $variation_count = self::get_connected_variations_count($product_id);
+                            ?>
+                            <tr>
+                                <td><?php echo esc_html($index + 1); ?></td>
+                                <td>
+                                    <a href="<?php echo esc_url(get_edit_post_link($product_id)); ?>">
+                                        <?php echo esc_html(get_the_title($product_id)); ?>
+                                    </a>
+                                </td>
+                                <td><?php echo $remote_id ? esc_html($remote_id) : '—'; ?></td>
+                                <td><?php echo esc_html($variation_count); ?></td>
+                                <td><?php echo $last_sync ? esc_html($last_sync) : '—'; ?></td>
+                                <td>
+                                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                                        <?php wp_nonce_field(self::NONCE_ACTION_MANUAL_SYNC); ?>
+                                        <input type="hidden" name="action" value="azinsanaat_manual_sync">
+                                        <input type="hidden" name="product_id" value="<?php echo esc_attr($product_id); ?>">
+                                        <?php submit_button(__('سینک مجدد', 'azinsanaat-connection'), 'secondary', 'submit', false); ?>
                                     </form>
                                 </td>
                             </tr>
@@ -555,6 +700,52 @@ if (!class_exists('Azinsanaat_Connection')) {
             return $post_id;
         }
 
+        public static function handle_manual_sync(): void
+        {
+            if (!current_user_can('manage_options')) {
+                wp_die(__('شما اجازه دسترسی ندارید.', 'azinsanaat-connection'));
+            }
+
+            check_admin_referer(self::NONCE_ACTION_MANUAL_SYNC);
+
+            $product_id = isset($_POST['product_id']) ? absint($_POST['product_id']) : 0;
+            if (!$product_id) {
+                self::set_transient_message(self::NOTICE_CONNECTED_PRODUCTS, [
+                    'type'    => 'error',
+                    'message' => __('محصول انتخاب شده یافت نشد.', 'azinsanaat-connection'),
+                ]);
+                wp_safe_redirect(self::get_connected_products_page_url());
+                exit;
+            }
+
+            $remote_id = (int) get_post_meta($product_id, self::META_REMOTE_ID, true);
+            if (!$remote_id) {
+                self::set_transient_message(self::NOTICE_CONNECTED_PRODUCTS, [
+                    'type'    => 'error',
+                    'message' => __('برای این محصول شناسه وب‌سرویس ثبت نشده است.', 'azinsanaat-connection'),
+                ]);
+                wp_safe_redirect(self::get_connected_products_page_url());
+                exit;
+            }
+
+            $result = self::sync_product_with_remote($product_id, $remote_id);
+
+            if (is_wp_error($result)) {
+                self::set_transient_message(self::NOTICE_CONNECTED_PRODUCTS, [
+                    'type'    => 'error',
+                    'message' => $result->get_error_message(),
+                ]);
+            } else {
+                self::set_transient_message(self::NOTICE_CONNECTED_PRODUCTS, [
+                    'type'    => 'success',
+                    'message' => __('محصول با موفقیت همگام‌سازی شد.', 'azinsanaat-connection'),
+                ]);
+            }
+
+            wp_safe_redirect(self::get_connected_products_page_url());
+            exit;
+        }
+
         protected static function set_featured_image_from_url(int $post_id, string $image_url)
         {
             if (empty($image_url)) {
@@ -612,18 +803,65 @@ if (!class_exists('Azinsanaat_Connection')) {
 
             wp_nonce_field('azinsanaat_save_product_meta', 'azinsanaat_product_meta_nonce');
             ?>
-            <p>
-                <label for="azinsanaat-remote-product-id"><?php esc_html_e('شناسه محصول در وب‌سرویس آذین صنعت', 'azinsanaat-connection'); ?></label>
-                <input type="number" id="azinsanaat-remote-product-id" name="azinsanaat_remote_product_id" value="<?php echo esc_attr($remote_id); ?>" class="widefat" min="1" step="1">
-            </p>
-            <p class="description"><?php esc_html_e('با ذخیره محصول، قیمت و موجودی بر اساس اطلاعات این شناسه به‌روزرسانی می‌شود.', 'azinsanaat-connection'); ?></p>
-            <?php if ($last_sync) :
-                $timestamp = (int) $last_sync;
-                $format = get_option('date_format') . ' - ' . get_option('time_format');
-                $formatted = function_exists('wp_date') ? wp_date($format, $timestamp) : date_i18n($format, $timestamp);
-                ?>
-                <p><strong><?php esc_html_e('آخرین همگام‌سازی:', 'azinsanaat-connection'); ?></strong> <?php echo esc_html($formatted); ?></p>
-            <?php endif; ?>
+            <div id="azinsanaat-product-meta-box" data-product-id="<?php echo esc_attr($post->ID); ?>">
+                <p>
+                    <label for="azinsanaat-remote-product-id"><?php esc_html_e('شناسه محصول در وب‌سرویس آذین صنعت', 'azinsanaat-connection'); ?></label>
+                    <span class="azinsanaat-product-meta-input">
+                        <input type="number" id="azinsanaat-remote-product-id" name="azinsanaat_remote_product_id" value="<?php echo esc_attr($remote_id); ?>" class="widefat" min="1" step="1">
+                        <button type="button" class="button azinsanaat-fetch-button"><?php esc_html_e('دریافت', 'azinsanaat-connection'); ?></button>
+                    </span>
+                </p>
+                <p class="description"><?php esc_html_e('برای همگام‌سازی فوری، شناسه محصول را وارد و روی دکمه دریافت کلیک کنید.', 'azinsanaat-connection'); ?></p>
+                <div class="azinsanaat-meta-messages"></div>
+                <div class="azinsanaat-meta-results">
+                    <div class="azinsanaat-meta-static">
+                        <p><strong><?php esc_html_e('شناسه متصل فعلی:', 'azinsanaat-connection'); ?></strong> <span class="azinsanaat-current-remote-id"><?php echo $remote_id ? esc_html($remote_id) : '—'; ?></span></p>
+                        <?php
+                        $formatted = '';
+                        if ($last_sync) {
+                            $timestamp = (int) $last_sync;
+                            $format = get_option('date_format') . ' - ' . get_option('time_format');
+                            $formatted = function_exists('wp_date') ? wp_date($format, $timestamp) : date_i18n($format, $timestamp);
+                        }
+                        ?>
+                        <p class="azinsanaat-last-sync"><strong><?php esc_html_e('آخرین همگام‌سازی:', 'azinsanaat-connection'); ?></strong> <span><?php echo $formatted ? esc_html($formatted) : '—'; ?></span></p>
+                    </div>
+                    <div class="azinsanaat-meta-dynamic"></div>
+                </div>
+            </div>
+            <style>
+                #azinsanaat-product-meta-box .azinsanaat-product-meta-input {
+                    display: flex;
+                    gap: 6px;
+                    align-items: center;
+                }
+
+                #azinsanaat-product-meta-box .azinsanaat-meta-results {
+                    margin-top: 10px;
+                }
+
+                #azinsanaat-product-meta-box .azinsanaat-meta-dynamic table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin-top: 8px;
+                }
+
+                #azinsanaat-product-meta-box .azinsanaat-meta-dynamic table th,
+                #azinsanaat-product-meta-box .azinsanaat-meta-dynamic table td {
+                    border: 1px solid #ddd;
+                    padding: 4px;
+                    font-size: 12px;
+                    text-align: right;
+                }
+
+                #azinsanaat-product-meta-box .azinsanaat-meta-dynamic table th {
+                    background-color: #f9f9f9;
+                }
+
+                #azinsanaat-product-meta-box .azinsanaat-meta-messages .notice {
+                    margin: 10px 0 0;
+                }
+            </style>
             <?php
         }
 
@@ -712,6 +950,212 @@ if (!class_exists('Azinsanaat_Connection')) {
             return 'azinsanaat_product_sync_notice_' . $post_id;
         }
 
+        public static function ajax_fetch_remote_product(): void
+        {
+            check_ajax_referer(self::NONCE_ACTION_META, 'nonce');
+
+            if (!current_user_can('edit_products')) {
+                wp_send_json_error(['message' => __('شما اجازه دسترسی ندارید.', 'azinsanaat-connection')]);
+            }
+
+            if (!class_exists('WooCommerce')) {
+                wp_send_json_error(['message' => __('افزونه ووکامرس فعال نیست.', 'azinsanaat-connection')]);
+            }
+
+            $product_id = isset($_POST['product_id']) ? absint($_POST['product_id']) : 0;
+            $remote_id = isset($_POST['remote_id']) ? absint($_POST['remote_id']) : 0;
+
+            if (!$product_id) {
+                wp_send_json_error(['message' => __('برای استفاده از این قابلیت ابتدا محصول را ذخیره کنید.', 'azinsanaat-connection')]);
+            }
+
+            if (!$remote_id) {
+                wp_send_json_error(['message' => __('شناسه محصول نامعتبر است.', 'azinsanaat-connection')]);
+            }
+
+            $client = self::get_api_client();
+            if (is_wp_error($client)) {
+                wp_send_json_error(['message' => $client->get_error_message()]);
+            }
+
+            $response = $client->get('products/' . $remote_id);
+            if (is_wp_error($response)) {
+                wp_send_json_error(['message' => $response->get_error_message()]);
+            }
+
+            $status_code = wp_remote_retrieve_response_code($response);
+            if ($status_code < 200 || $status_code >= 300) {
+                $body = json_decode(wp_remote_retrieve_body($response), true);
+                $message = $body['message'] ?? __('دریافت اطلاعات محصول با خطا مواجه شد.', 'azinsanaat-connection');
+                wp_send_json_error(['message' => $message]);
+            }
+
+            $data = json_decode(wp_remote_retrieve_body($response), true);
+            if (!is_array($data)) {
+                wp_send_json_error(['message' => __('پاسخ نامعتبر از وب‌سرویس دریافت شد.', 'azinsanaat-connection')]);
+            }
+
+            $product_info = [
+                'id'             => (int) ($data['id'] ?? $remote_id),
+                'name'           => $data['name'] ?? '',
+                'type'           => $data['type'] ?? 'simple',
+                'price'          => $data['price'] ?? '',
+                'regular_price'  => $data['regular_price'] ?? '',
+                'stock_status'   => self::format_stock_status($data['stock_status'] ?? ''),
+                'stock_quantity' => $data['stock_quantity'] ?? null,
+            ];
+
+            $is_variable = ($product_info['type'] === 'variable' || !empty($data['variations']));
+            $remote_variations = [];
+            $local_variations = [];
+
+            if ($is_variable) {
+                $variations = self::fetch_remote_variations($client, $product_info['id']);
+                if (is_wp_error($variations)) {
+                    wp_send_json_error(['message' => $variations->get_error_message()]);
+                }
+
+                $remote_variations = array_map(function ($variation) {
+                    return [
+                        'id'                     => (int) ($variation['id'] ?? 0),
+                        'price'                  => $variation['price'] ?? '',
+                        'regular_price'          => $variation['regular_price'] ?? '',
+                        'stock_status'           => self::format_stock_status($variation['stock_status'] ?? ''),
+                        'stock_quantity'         => $variation['stock_quantity'] ?? null,
+                        'attributes'             => self::format_variation_attributes($variation['attributes'] ?? []),
+                    ];
+                }, $variations);
+
+                $local_variations = self::get_local_variations_for_product($product_id);
+
+                foreach ($remote_variations as &$remote_variation) {
+                    foreach ($local_variations as $local_variation) {
+                        if ((int) $local_variation['remote_id'] === (int) $remote_variation['id']) {
+                            $remote_variation['connected_variation_id'] = $local_variation['id'];
+                            break;
+                        }
+                    }
+                }
+                unset($remote_variation);
+            }
+
+            $current_remote_id = (int) get_post_meta($product_id, self::META_REMOTE_ID, true);
+
+            wp_send_json_success([
+                'remote_id'         => $product_info['id'],
+                'product'           => $product_info,
+                'is_variable'       => $is_variable,
+                'remote_variations' => $remote_variations,
+                'local_variations'  => $local_variations,
+                'current_remote_id' => $current_remote_id,
+                'last_sync'         => self::get_formatted_sync_time($product_id),
+            ]);
+        }
+
+        public static function ajax_connect_simple_product(): void
+        {
+            check_ajax_referer(self::NONCE_ACTION_META, 'nonce');
+
+            if (!current_user_can('edit_products')) {
+                wp_send_json_error(['message' => __('شما اجازه دسترسی ندارید.', 'azinsanaat-connection')]);
+            }
+
+            if (!class_exists('WooCommerce')) {
+                wp_send_json_error(['message' => __('افزونه ووکامرس فعال نیست.', 'azinsanaat-connection')]);
+            }
+
+            $product_id = isset($_POST['product_id']) ? absint($_POST['product_id']) : 0;
+            $remote_id = isset($_POST['remote_id']) ? absint($_POST['remote_id']) : 0;
+
+            if (!$product_id || !$remote_id) {
+                wp_send_json_error(['message' => __('شناسه‌های ارسالی نامعتبر هستند.', 'azinsanaat-connection')]);
+            }
+
+            update_post_meta($product_id, self::META_REMOTE_ID, $remote_id);
+
+            $result = self::sync_product_with_remote($product_id, $remote_id);
+            if (is_wp_error($result)) {
+                wp_send_json_error(['message' => $result->get_error_message()]);
+            }
+
+            wp_send_json_success([
+                'remote_id' => $remote_id,
+                'last_sync' => self::get_formatted_sync_time($product_id),
+            ]);
+        }
+
+        public static function ajax_connect_product_variations(): void
+        {
+            check_ajax_referer(self::NONCE_ACTION_META, 'nonce');
+
+            if (!current_user_can('edit_products')) {
+                wp_send_json_error(['message' => __('شما اجازه دسترسی ندارید.', 'azinsanaat-connection')]);
+            }
+
+            if (!class_exists('WooCommerce')) {
+                wp_send_json_error(['message' => __('افزونه ووکامرس فعال نیست.', 'azinsanaat-connection')]);
+            }
+
+            $product_id = isset($_POST['product_id']) ? absint($_POST['product_id']) : 0;
+            $remote_id = isset($_POST['remote_id']) ? absint($_POST['remote_id']) : 0;
+            $mappings = isset($_POST['mappings']) && is_array($_POST['mappings']) ? $_POST['mappings'] : [];
+
+            if (!$product_id || !$remote_id) {
+                wp_send_json_error(['message' => __('شناسه‌های ارسالی نامعتبر هستند.', 'azinsanaat-connection')]);
+            }
+
+            if (empty($mappings)) {
+                wp_send_json_error(['message' => __('هیچ متغیری برای اتصال ارسال نشده است.', 'azinsanaat-connection')]);
+            }
+
+            $used_local_variations = [];
+            $connected_count = 0;
+
+            foreach ($mappings as $remote_variation_id => $local_variation_id) {
+                $remote_variation_id = absint($remote_variation_id);
+                $local_variation_id = absint($local_variation_id);
+
+                if (!$remote_variation_id || !$local_variation_id) {
+                    continue;
+                }
+
+                if ((int) get_post_field('post_parent', $local_variation_id) !== $product_id) {
+                    wp_send_json_error(['message' => __('یکی از متغیرهای انتخابی متعلق به این محصول نیست.', 'azinsanaat-connection')]);
+                }
+
+                if (in_array($local_variation_id, $used_local_variations, true)) {
+                    wp_send_json_error(['message' => __('هر متغیر ووکامرس باید فقط به یک متغیر وب‌سرویس متصل شود.', 'azinsanaat-connection')]);
+                }
+
+                $used_local_variations[] = $local_variation_id;
+
+                update_post_meta($local_variation_id, self::META_REMOTE_ID, $remote_variation_id);
+
+                $result = self::sync_variation_with_remote($local_variation_id, $remote_id, $remote_variation_id);
+                if (is_wp_error($result)) {
+                    wp_send_json_error(['message' => $result->get_error_message()]);
+                }
+
+                $connected_count++;
+            }
+
+            if ($connected_count === 0) {
+                wp_send_json_error(['message' => __('حداقل یک متغیر باید انتخاب شود.', 'azinsanaat-connection')]);
+            }
+
+            update_post_meta($product_id, self::META_REMOTE_ID, $remote_id);
+            update_post_meta($product_id, self::META_LAST_SYNC, current_time('timestamp'));
+
+            if (function_exists('wc_delete_product_transients')) {
+                wc_delete_product_transients($product_id);
+            }
+
+            wp_send_json_success([
+                'remote_id' => $remote_id,
+                'last_sync' => self::get_formatted_sync_time($product_id),
+            ]);
+        }
+
         protected static function sync_product_with_remote(int $product_id, int $remote_id)
         {
             $client = self::get_api_client();
@@ -739,14 +1183,18 @@ if (!class_exists('Azinsanaat_Connection')) {
 
             $clean_callback = function_exists('wc_clean') ? 'wc_clean' : 'sanitize_text_field';
 
-            if (isset($data['regular_price']) && $data['regular_price'] !== '') {
-                $regular_price = call_user_func($clean_callback, $data['regular_price']);
-                update_post_meta($product_id, '_regular_price', $regular_price);
-                update_post_meta($product_id, '_price', $regular_price);
-            } elseif (isset($data['price']) && $data['price'] !== '') {
-                $price = call_user_func($clean_callback, $data['price']);
-                update_post_meta($product_id, '_price', $price);
-                delete_post_meta($product_id, '_regular_price');
+            $product_type = $data['type'] ?? '';
+
+            if ($product_type !== 'variable') {
+                if (isset($data['regular_price']) && $data['regular_price'] !== '') {
+                    $regular_price = call_user_func($clean_callback, $data['regular_price']);
+                    update_post_meta($product_id, '_regular_price', $regular_price);
+                    update_post_meta($product_id, '_price', $regular_price);
+                } elseif (isset($data['price']) && $data['price'] !== '') {
+                    $price = call_user_func($clean_callback, $data['price']);
+                    update_post_meta($product_id, '_price', $price);
+                    delete_post_meta($product_id, '_regular_price');
+                }
             }
 
             if (isset($data['stock_status']) && $data['stock_status'] !== '') {
@@ -762,6 +1210,13 @@ if (!class_exists('Azinsanaat_Connection')) {
                 delete_post_meta($product_id, '_stock');
             }
 
+            if ($product_type === 'variable' || !empty($data['variations'])) {
+                $variations_result = self::sync_variable_children($product_id, $remote_id, $client);
+                if (is_wp_error($variations_result)) {
+                    return $variations_result;
+                }
+            }
+
             update_post_meta($product_id, self::META_LAST_SYNC, current_time('timestamp'));
 
             if (function_exists('wc_delete_product_transients')) {
@@ -769,6 +1224,241 @@ if (!class_exists('Azinsanaat_Connection')) {
             }
 
             return true;
+        }
+
+        protected static function sync_variable_children(int $product_id, int $remote_product_id, $client)
+        {
+            $variation_ids = get_posts([
+                'post_type'      => 'product_variation',
+                'post_parent'    => $product_id,
+                'post_status'    => ['publish', 'private', 'draft'],
+                'posts_per_page' => -1,
+                'fields'         => 'ids',
+                'meta_query'     => [
+                    [
+                        'key'     => self::META_REMOTE_ID,
+                        'compare' => 'EXISTS',
+                    ],
+                ],
+            ]);
+
+            if (empty($variation_ids)) {
+                return true;
+            }
+
+            foreach ($variation_ids as $variation_id) {
+                $remote_variation_id = (int) get_post_meta($variation_id, self::META_REMOTE_ID, true);
+                if (!$remote_variation_id) {
+                    continue;
+                }
+
+                $result = self::sync_variation_with_remote($variation_id, $remote_product_id, $remote_variation_id, $client);
+                if (is_wp_error($result)) {
+                    return $result;
+                }
+            }
+
+            return true;
+        }
+
+        protected static function sync_variation_with_remote(int $variation_id, int $remote_product_id, int $remote_variation_id, $client = null)
+        {
+            if (!$client) {
+                $client = self::get_api_client();
+                if (is_wp_error($client)) {
+                    return $client;
+                }
+            }
+
+            $endpoint = sprintf('products/%d/variations/%d', $remote_product_id, $remote_variation_id);
+            $response = $client->get($endpoint);
+            if (is_wp_error($response)) {
+                return $response;
+            }
+
+            $status_code = wp_remote_retrieve_response_code($response);
+            if ($status_code < 200 || $status_code >= 300) {
+                $body = json_decode(wp_remote_retrieve_body($response), true);
+                $message = $body['message'] ?? __('خطا در دریافت اطلاعات متغیر از وب‌سرویس.', 'azinsanaat-connection');
+
+                return new WP_Error('azinsanaat_variation_sync_failed', $message);
+            }
+
+            $data = json_decode(wp_remote_retrieve_body($response), true);
+            if (!is_array($data)) {
+                return new WP_Error('azinsanaat_invalid_variation', __('پاسخ نامعتبر برای متغیر دریافت شد.', 'azinsanaat-connection'));
+            }
+
+            $clean_callback = function_exists('wc_clean') ? 'wc_clean' : 'sanitize_text_field';
+
+            if (isset($data['regular_price']) && $data['regular_price'] !== '') {
+                update_post_meta($variation_id, '_regular_price', call_user_func($clean_callback, $data['regular_price']));
+            } else {
+                delete_post_meta($variation_id, '_regular_price');
+            }
+
+            if (isset($data['sale_price']) && $data['sale_price'] !== '') {
+                update_post_meta($variation_id, '_sale_price', call_user_func($clean_callback, $data['sale_price']));
+            } else {
+                delete_post_meta($variation_id, '_sale_price');
+            }
+
+            if (isset($data['price']) && $data['price'] !== '') {
+                update_post_meta($variation_id, '_price', call_user_func($clean_callback, $data['price']));
+            } else {
+                delete_post_meta($variation_id, '_price');
+            }
+
+            if (isset($data['stock_status']) && $data['stock_status'] !== '') {
+                update_post_meta($variation_id, '_stock_status', sanitize_text_field($data['stock_status']));
+            }
+
+            if (array_key_exists('stock_quantity', $data) && $data['stock_quantity'] !== null && $data['stock_quantity'] !== '') {
+                update_post_meta($variation_id, '_stock', (int) $data['stock_quantity']);
+                update_post_meta($variation_id, '_manage_stock', !empty($data['manage_stock']) ? 'yes' : 'no');
+            } else {
+                update_post_meta($variation_id, '_manage_stock', 'no');
+                delete_post_meta($variation_id, '_stock');
+            }
+
+            update_post_meta($variation_id, self::META_LAST_SYNC, current_time('timestamp'));
+
+            $parent_id = (int) wp_get_post_parent_id($variation_id);
+            if ($parent_id && function_exists('wc_delete_product_transients')) {
+                wc_delete_product_transients($parent_id);
+            }
+
+            return true;
+        }
+
+        protected static function fetch_remote_variations($client, int $remote_product_id)
+        {
+            $page = 1;
+            $per_page = 50;
+            $variations = [];
+
+            do {
+                $response = $client->get(sprintf('products/%d/variations', $remote_product_id), [
+                    'per_page' => $per_page,
+                    'page'     => $page,
+                ]);
+
+                if (is_wp_error($response)) {
+                    return $response;
+                }
+
+                $status = wp_remote_retrieve_response_code($response);
+                if ($status < 200 || $status >= 300) {
+                    $body = json_decode(wp_remote_retrieve_body($response), true);
+                    $message = $body['message'] ?? __('خطا در دریافت متغیرهای محصول.', 'azinsanaat-connection');
+
+                    return new WP_Error('azinsanaat_variations_request_failed', $message);
+                }
+
+                $batch = json_decode(wp_remote_retrieve_body($response), true);
+                if (!is_array($batch)) {
+                    return new WP_Error('azinsanaat_invalid_variations_response', __('پاسخ نامعتبر از متغیرها دریافت شد.', 'azinsanaat-connection'));
+                }
+
+                if (!empty($batch)) {
+                    $variations = array_merge($variations, $batch);
+                }
+
+                $page++;
+            } while (!empty($batch) && count($batch) === $per_page);
+
+            return $variations;
+        }
+
+        protected static function get_local_variations_for_product(int $product_id): array
+        {
+            if (!function_exists('wc_get_product')) {
+                return [];
+            }
+
+            $variation_ids = get_posts([
+                'post_type'      => 'product_variation',
+                'post_parent'    => $product_id,
+                'post_status'    => ['publish', 'private', 'draft'],
+                'posts_per_page' => -1,
+                'fields'         => 'ids',
+            ]);
+
+            $variations = [];
+            foreach ($variation_ids as $variation_id) {
+                $variation = wc_get_product($variation_id);
+                if (!$variation) {
+                    continue;
+                }
+
+                $variations[] = [
+                    'id'        => $variation_id,
+                    'name'      => $variation->get_formatted_name(),
+                    'remote_id' => (int) get_post_meta($variation_id, self::META_REMOTE_ID, true),
+                ];
+            }
+
+            return $variations;
+        }
+
+        protected static function format_variation_attributes(array $attributes): string
+        {
+            $parts = [];
+            foreach ($attributes as $attribute) {
+                $name = $attribute['name'] ?? '';
+                $value = $attribute['option'] ?? ($attribute['value'] ?? '');
+
+                if ($name || $value) {
+                    if ($name && $value) {
+                        $parts[] = sprintf('%s: %s', $name, $value);
+                    } elseif ($value) {
+                        $parts[] = $value;
+                    } elseif ($name) {
+                        $parts[] = $name;
+                    }
+                }
+            }
+
+            return implode(' | ', $parts);
+        }
+
+        protected static function get_formatted_sync_time(int $post_id): string
+        {
+            $timestamp = (int) get_post_meta($post_id, self::META_LAST_SYNC, true);
+            if (!$timestamp) {
+                return '';
+            }
+
+            $format = get_option('date_format') . ' - ' . get_option('time_format');
+
+            return function_exists('wp_date') ? wp_date($format, $timestamp) : date_i18n($format, $timestamp);
+        }
+
+        protected static function get_connected_variations_count(int $product_id): int
+        {
+            $query = new WP_Query([
+                'post_type'      => 'product_variation',
+                'post_parent'    => $product_id,
+                'post_status'    => ['publish', 'private', 'draft'],
+                'posts_per_page' => -1,
+                'fields'         => 'ids',
+                'meta_query'     => [
+                    [
+                        'key'     => self::META_REMOTE_ID,
+                        'compare' => 'EXISTS',
+                    ],
+                ],
+            ]);
+
+            $count = (int) $query->found_posts;
+            wp_reset_postdata();
+
+            return $count;
+        }
+
+        protected static function get_connected_products_page_url(): string
+        {
+            return admin_url('admin.php?page=azinsanaat-connection-linked-products');
         }
 
         public static function run_scheduled_sync(): void
