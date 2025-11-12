@@ -36,6 +36,7 @@
         event.preventDefault();
 
         var productId = parseInt($form.data('productId'), 10) || 0;
+        var connectionId = $form.data('connectionId') || $form.find('input[name="connection_id"]').val() || '';
         if (!productId) {
             return;
         }
@@ -59,7 +60,8 @@
             data: {
                 action: 'azinsanaat_import_product',
                 product_id: productId,
-                nonce: nonce
+                nonce: nonce,
+                connection_id: connectionId
             }
         }).done(function (response) {
             if (response && response.success) {
