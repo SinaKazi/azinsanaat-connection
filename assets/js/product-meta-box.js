@@ -59,6 +59,53 @@
         var $results = $metaBox.find('.azinsanaat-meta-results');
         var $staticInfo = $metaBox.find('.azinsanaat-meta-static');
         var $dynamic = $metaBox.find('.azinsanaat-meta-dynamic');
+        var hasConnections = !!AzinsanaatProductMeta.hasConnections;
+        var currentConnection = AzinsanaatProductMeta.currentConnection || '';
+        var $connectionSelect = $metaBox.find('#azinsanaat-connection-select');
+
+        if ($connectionSelect.length && currentConnection) {
+            $connectionSelect.val(currentConnection);
+        }
+
+        if ($connectionSelect.length) {
+            $connectionSelect.on('change', function () {
+                currentConnection = $(this).val() || '';
+            });
+        }
+
+        function getSelectedConnection() {
+            if ($connectionSelect.length) {
+                return $connectionSelect.val() || '';
+            }
+
+            return currentConnection || '';
+        }
+
+        function updateConnection(connectionId) {
+            if (!connectionId) {
+                return;
+            }
+
+            currentConnection = connectionId;
+            if ($connectionSelect.length) {
+                $connectionSelect.val(connectionId);
+            }
+        }
+
+        function ensureConnectionSelected() {
+            if (!hasConnections) {
+                addMessage('error', AzinsanaatProductMeta.strings.noConnectionsConfigured);
+                return '';
+            }
+
+            var connectionId = getSelectedConnection();
+            if (!connectionId) {
+                addMessage('error', AzinsanaatProductMeta.strings.missingConnection);
+                return '';
+            }
+
+            return connectionId;
+        }
 
         function clearMessages() {
             $messages.empty();
@@ -197,6 +244,10 @@
                 $input.val(data.remote_id);
             }
 
+            if (data.connection_id) {
+                updateConnection(data.connection_id);
+            }
+
             var currentId = data.current_remote_id || 0;
             var $currentRemote = $staticInfo.find('.azinsanaat-current-remote-id');
             if ($currentRemote.length) {
@@ -244,6 +295,11 @@
                 return;
             }
 
+            var connectionId = ensureConnectionSelected();
+            if (!connectionId) {
+                return;
+            }
+
             var $button = $(this);
             disableButton($button, true);
             addMessage('info', AzinsanaatProductMeta.strings.fetching);
@@ -256,7 +312,8 @@
                     action: 'azinsanaat_fetch_remote_product',
                     nonce: AzinsanaatProductMeta.nonce,
                     product_id: productId,
-                    remote_id: remoteId
+                    remote_id: remoteId,
+                    connection_id: connectionId
                 }
             }).done(function (response) {
                 if (response.success) {
@@ -281,6 +338,11 @@
                 return;
             }
 
+            var connectionId = ensureConnectionSelected();
+            if (!connectionId) {
+                return;
+            }
+
             disableButton($button, true);
 
             $.ajax({
@@ -291,12 +353,16 @@
                     action: 'azinsanaat_connect_simple_product',
                     nonce: AzinsanaatProductMeta.nonce,
                     product_id: productId,
-                    remote_id: remoteId
+                    remote_id: remoteId,
+                    connection_id: connectionId
                 }
             }).done(function (response) {
                 if (response.success) {
                     $input.val(remoteId);
                     addMessage('success', AzinsanaatProductMeta.strings.success);
+                    if (response.data && response.data.connection_id) {
+                        updateConnection(response.data.connection_id);
+                    }
                     if (response.data && response.data.last_sync) {
                         var $lastSync = $staticInfo.find('.azinsanaat-last-sync span');
                         if ($lastSync.length) {
@@ -334,6 +400,11 @@
                 return;
             }
 
+            var connectionId = ensureConnectionSelected();
+            if (!connectionId) {
+                return;
+            }
+
             disableButton($button, true);
 
             $.ajax({
@@ -345,12 +416,16 @@
                     nonce: AzinsanaatProductMeta.nonce,
                     product_id: productId,
                     remote_id: remoteId,
-                    variation_id: variationId
+                    variation_id: variationId,
+                    connection_id: connectionId
                 }
             }).done(function (response) {
                 if (response.success) {
                     $input.val(remoteId);
                     addMessage('success', strings.success);
+                    if (response.data && response.data.connection_id) {
+                        updateConnection(response.data.connection_id);
+                    }
 
                     if (response.data && response.data.last_sync) {
                         var $lastSync = $staticInfo.find('.azinsanaat-last-sync span');
@@ -412,6 +487,11 @@
                 return;
             }
 
+            var connectionId = ensureConnectionSelected();
+            if (!connectionId) {
+                return;
+            }
+
             var mappings = {};
             var duplicate = false;
             var selectedLocalIds = [];
@@ -455,12 +535,16 @@
                     nonce: AzinsanaatProductMeta.nonce,
                     product_id: productId,
                     remote_id: remoteId,
-                    mappings: mappings
+                    mappings: mappings,
+                    connection_id: connectionId
                 }
             }).done(function (response) {
                 if (response.success) {
                     $input.val(remoteId);
                     addMessage('success', AzinsanaatProductMeta.strings.success);
+                    if (response.data && response.data.connection_id) {
+                        updateConnection(response.data.connection_id);
+                    }
                     if (response.data && response.data.last_sync) {
                         var $lastSync = $staticInfo.find('.azinsanaat-last-sync span');
                         if ($lastSync.length) {
