@@ -719,7 +719,9 @@ if (!class_exists('Azinsanaat_Connection')) {
                 'instock'    => __('موجود', 'azinsanaat-connection'),
                 'outofstock' => __('ناموجود', 'azinsanaat-connection'),
             ];
-            $stock_filter = array_key_exists($stock_filter, $allowed_stock_statuses) ? $stock_filter : '';
+            if ($stock_filter === '' || !array_key_exists($stock_filter, $allowed_stock_statuses)) {
+                $stock_filter = 'instock';
+            }
             $total_pages = 1;
 
             if (is_wp_error($client)) {
@@ -735,9 +737,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                     $request_args['search'] = $search_query;
                 }
 
-                if ($stock_filter !== '') {
-                    $request_args['stock_status'] = $stock_filter;
-                }
+                $request_args['stock_status'] = $stock_filter;
 
                 $response = $client->get('products', $request_args);
 
@@ -901,7 +901,6 @@ if (!class_exists('Azinsanaat_Connection')) {
                     >
                     <label for="azinsanaat-stock-status" class="screen-reader-text"><?php esc_html_e('فیلتر وضعیت موجودی', 'azinsanaat-connection'); ?></label>
                     <select id="azinsanaat-stock-status" name="stock_status">
-                        <option value=""><?php esc_html_e('همه وضعیت‌ها', 'azinsanaat-connection'); ?></option>
                         <?php foreach ($allowed_stock_statuses as $value => $label) : ?>
                             <option value="<?php echo esc_attr($value); ?>" <?php selected($stock_filter, $value); ?>><?php echo esc_html($label); ?></option>
                         <?php endforeach; ?>
