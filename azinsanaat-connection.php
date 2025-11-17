@@ -1077,18 +1077,22 @@ if (!class_exists('Azinsanaat_Connection')) {
                         }
 
                         $base_link = add_query_arg(array_merge($query_args, ['paged' => '%#%']), $base_url);
-                        $pagination = paginate_links([
+                        $pagination_links = paginate_links([
                             'base'      => $base_link,
                             'format'    => '',
                             'total'     => max(1, $total_pages),
                             'current'   => $current_page,
                             'prev_text' => __('« قبلی', 'azinsanaat-connection'),
                             'next_text' => __('بعدی »', 'azinsanaat-connection'),
-                            'type'      => 'list',
+                            'type'      => 'array',
                         ]);
 
-                        if ($pagination) {
-                            echo '<div class="tablenav"><div class="tablenav-pages">' . wp_kses_post($pagination) . '</div></div>';
+                        if (!empty($pagination_links)) {
+                            echo '<div class="tablenav"><div class="tablenav-pages"><span class="pagination-links">';
+                            foreach ($pagination_links as $pagination_link) {
+                                echo wp_kses_post($pagination_link);
+                            }
+                            echo '</span></div></div>';
                         }
                     }
                     ?>
