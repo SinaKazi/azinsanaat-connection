@@ -24,6 +24,7 @@ if (!class_exists('Azinsanaat_Connection')) {
         const META_LAST_SYNC = '_azinsanaat_last_synced';
         const META_REMOTE_CONNECTION = '_azinsanaat_remote_connection';
         const NOTICE_CONNECTED_PRODUCTS = 'azinsanaat_connection_connected_notice';
+        const CAPABILITY = 'manage_azinsanaat_connection';
 
         /**
          * Bootstraps plugin hooks.
@@ -33,6 +34,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             add_filter('cron_schedules', [__CLASS__, 'register_cron_schedules']);
             add_action(self::CRON_HOOK, [__CLASS__, 'run_scheduled_sync'], 10, 1);
             add_action('init', [__CLASS__, 'ensure_cron_schedule']);
+            add_action('init', [__CLASS__, 'ensure_plugin_capability']);
             add_action('update_option_' . self::OPTION_KEY, [__CLASS__, 'handle_options_updated'], 10, 3);
 
             if (!is_admin()) {
@@ -82,7 +84,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             add_menu_page(
                 __('Azinsanaat Connection', 'azinsanaat-connection'),
                 __('اتصال آذین صنعت', 'azinsanaat-connection'),
-                'manage_options',
+                self::get_required_capability(),
                 'azinsanaat-connection',
                 [__CLASS__, 'render_settings_page'],
                 'dashicons-rest-api'
@@ -92,7 +94,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                 'azinsanaat-connection',
                 __('تنظیمات اتصال', 'azinsanaat-connection'),
                 __('تنظیمات', 'azinsanaat-connection'),
-                'manage_options',
+                self::get_required_capability(),
                 'azinsanaat-connection',
                 [__CLASS__, 'render_settings_page']
             );
@@ -101,7 +103,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                 'azinsanaat-connection',
                 __('محصولات وب‌سرویس', 'azinsanaat-connection'),
                 __('محصولات', 'azinsanaat-connection'),
-                'manage_options',
+                self::get_required_capability(),
                 'azinsanaat-connection-products',
                 [__CLASS__, 'render_products_page']
             );
@@ -110,10 +112,54 @@ if (!class_exists('Azinsanaat_Connection')) {
                 'azinsanaat-connection',
                 __('محصولات متصل شده', 'azinsanaat-connection'),
                 __('محصولات متصل', 'azinsanaat-connection'),
-                'manage_options',
+                self::get_required_capability(),
                 'azinsanaat-connection-linked-products',
                 [__CLASS__, 'render_connected_products_page']
             );
+        }
+
+        protected static function get_required_capability(): string
+        {
+            $capability = apply_filters('azinsanaat_connection_required_capability', self::CAPABILITY);
+
+            return is_string($capability) && $capability !== '' ? $capability : self::CAPABILITY;
+        }
+
+        protected static function current_user_can_manage_plugin(): bool
+        {
+            if (current_user_can(self::get_required_capability())) {
+                return true;
+            }
+
+            return current_user_can('manage_woocommerce') || current_user_can('manage_options');
+        }
+
+        public static function ensure_plugin_capability(): void
+        {
+            if (!function_exists('get_role')) {
+                return;
+            }
+
+            $roles = apply_filters('azinsanaat_connection_capability_roles', ['administrator', 'shop_manager']);
+            if (!is_array($roles) || empty($roles)) {
+                $roles = ['administrator', 'shop_manager'];
+            }
+
+            $capability = self::get_required_capability();
+
+            foreach ($roles as $role_name) {
+                $role_name = is_string($role_name) ? sanitize_key($role_name) : '';
+                if ($role_name === '') {
+                    continue;
+                }
+
+                $role = get_role($role_name);
+                if (!$role || $role->has_cap($capability)) {
+                    continue;
+                }
+
+                $role->add_cap($capability);
+            }
         }
 
         /**
@@ -369,7 +415,7 @@ if (!class_exists('Azinsanaat_Connection')) {
          */
         public static function render_settings_page(): void
         {
-            if (!current_user_can('manage_options')) {
+            if (!self::current_user_can_manage_plugin()) {
                 return;
             }
 
@@ -634,7 +680,7 @@ if (!class_exists('Azinsanaat_Connection')) {
          */
         public static function handle_test_connection(): void
         {
-            if (!current_user_can('manage_options')) {
+            if (!self::current_user_can_manage_plugin()) {
                 wp_die(__('شما اجازه دسترسی ندارید.', 'azinsanaat-connection'));
             }
 
@@ -683,7 +729,7 @@ if (!class_exists('Azinsanaat_Connection')) {
          */
         public static function render_products_page(): void
         {
-            if (!current_user_can('manage_options')) {
+            if (!self::current_user_can_manage_plugin()) {
                 return;
             }
 
@@ -1103,7 +1149,7 @@ if (!class_exists('Azinsanaat_Connection')) {
 
         public static function render_connected_products_page(): void
         {
-            if (!current_user_can('manage_options')) {
+            if (!self::current_user_can_manage_plugin()) {
                 return;
             }
 
@@ -1217,7 +1263,7 @@ if (!class_exists('Azinsanaat_Connection')) {
          */
         public static function handle_import_product(): void
         {
-            if (!current_user_can('manage_options')) {
+            if (!self::current_user_can_manage_plugin()) {
                 wp_die(__('شما اجازه دسترسی ندارید.', 'azinsanaat-connection'));
             }
 
@@ -1274,7 +1320,7 @@ if (!class_exists('Azinsanaat_Connection')) {
 
         public static function ajax_import_product(): void
         {
-            if (!current_user_can('manage_options')) {
+            if (!self::current_user_can_manage_plugin()) {
                 wp_send_json_error([
                     'message' => __('شما اجازه دسترسی ندارید.', 'azinsanaat-connection'),
                 ], 403);
@@ -1512,7 +1558,7 @@ if (!class_exists('Azinsanaat_Connection')) {
 
         public static function handle_manual_sync(): void
         {
-            if (!current_user_can('manage_options')) {
+            if (!self::current_user_can_manage_plugin()) {
                 wp_die(__('شما اجازه دسترسی ندارید.', 'azinsanaat-connection'));
             }
 
@@ -2660,6 +2706,7 @@ if (!class_exists('Azinsanaat_Connection')) {
 
         public static function activate(): void
         {
+            self::ensure_plugin_capability();
             self::clear_scheduled_event();
             self::schedule_events_for_connections();
         }
