@@ -1288,7 +1288,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                 return new WP_Error('azinsanaat_invalid_body', __('پاسخ نامعتبر از سرور دریافت شد.', 'azinsanaat-connection'));
             }
 
-            $result = self::create_pending_product($decoded, $site_category_id);
+            $result = self::create_pending_product($decoded, $site_category_id, $connection_id ?: null);
             if (is_wp_error($result)) {
                 return $result;
             }
@@ -1302,7 +1302,7 @@ if (!class_exists('Azinsanaat_Connection')) {
         /**
          * Creates a pending WooCommerce product locally.
          */
-        protected static function create_pending_product(array $data, ?int $site_category_id = null)
+        protected static function create_pending_product(array $data, ?int $site_category_id = null, ?string $connection_id = null)
         {
             $name = $data['name'] ?? '';
             if (!$name) {
@@ -1331,6 +1331,15 @@ if (!class_exists('Azinsanaat_Connection')) {
             $post_id = wp_insert_post($post_data, true);
             if (is_wp_error($post_id)) {
                 return $post_id;
+            }
+
+            $remote_product_id = isset($data['id']) ? (int) $data['id'] : 0;
+            if ($remote_product_id > 0) {
+                update_post_meta($post_id, self::META_REMOTE_ID, $remote_product_id);
+            }
+
+            if ($connection_id) {
+                update_post_meta($post_id, self::META_REMOTE_CONNECTION, sanitize_key($connection_id));
             }
 
             if ($sku) {
