@@ -31,7 +31,7 @@ if (!class_exists('Azinsanaat_Connection')) {
         public static function init(): void
         {
             add_filter('cron_schedules', [__CLASS__, 'register_cron_schedules']);
-            add_action(self::CRON_HOOK, [__CLASS__, 'run_scheduled_sync']);
+            add_action(self::CRON_HOOK, [__CLASS__, 'run_scheduled_sync'], 10, 1);
             add_action('init', [__CLASS__, 'ensure_cron_schedule']);
             add_action('update_option_' . self::OPTION_KEY, [__CLASS__, 'handle_options_updated'], 10, 3);
 
@@ -125,6 +125,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             $output['sync_interval'] = isset($input['sync_interval'])
                 ? self::sanitize_sync_interval($input['sync_interval'])
                 : '15min';
+            $default_connection_interval = $output['sync_interval'];
 
             $connections = [];
             if (isset($input['connections']) && is_array($input['connections'])) {
@@ -152,12 +153,17 @@ if (!class_exists('Azinsanaat_Connection')) {
                         $id = sanitize_key(wp_unique_id('conn_'));
                     }
 
+                    $connection_interval = isset($connection['sync_interval'])
+                        ? self::sanitize_sync_interval($connection['sync_interval'])
+                        : $default_connection_interval;
+
                     $connections[] = [
                         'id'              => $id,
                         'label'           => $label,
                         'store_url'       => $store_url,
                         'consumer_key'    => $consumer_key,
                         'consumer_secret' => $consumer_secret,
+                        'sync_interval'   => $connection_interval,
                     ];
                 }
             }
@@ -174,6 +180,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                         'store_url'       => $legacy_url,
                         'consumer_key'    => $legacy_key,
                         'consumer_secret' => $legacy_secret,
+                        'sync_interval'   => $default_connection_interval,
                     ];
                 }
             }
@@ -217,7 +224,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             ];
         }
 
-        protected static function normalize_connection(array $connection, ?string $fallback_id = null): ?array
+        protected static function normalize_connection(array $connection, ?string $fallback_id = null, ?string $fallback_interval = null): ?array
         {
             $store_url = isset($connection['store_url']) ? esc_url_raw(trim((string) $connection['store_url'])) : '';
             $consumer_key = isset($connection['consumer_key']) ? sanitize_text_field($connection['consumer_key']) : '';
@@ -246,12 +253,17 @@ if (!class_exists('Azinsanaat_Connection')) {
                 $id = sanitize_key(wp_unique_id('conn_'));
             }
 
+            $interval = isset($connection['sync_interval'])
+                ? self::sanitize_sync_interval($connection['sync_interval'])
+                : ($fallback_interval ? self::sanitize_sync_interval($fallback_interval) : '15min');
+
             return [
                 'id'              => $id,
                 'label'           => $label,
                 'store_url'       => $store_url,
                 'consumer_key'    => $consumer_key,
                 'consumer_secret' => $consumer_secret,
+                'sync_interval'   => $interval,
             ];
         }
 
@@ -266,6 +278,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             $options['sync_interval'] = isset($raw_options['sync_interval'])
                 ? self::sanitize_sync_interval($raw_options['sync_interval'])
                 : '15min';
+            $default_connection_interval = $options['sync_interval'];
 
             $connections = [];
             if (!empty($raw_options['connections']) && is_array($raw_options['connections'])) {
@@ -274,7 +287,11 @@ if (!class_exists('Azinsanaat_Connection')) {
                         continue;
                     }
 
-                    $normalized = self::normalize_connection($connection, is_string($key) ? $key : null);
+                    $normalized = self::normalize_connection(
+                        $connection,
+                        is_string($key) ? $key : null,
+                        $default_connection_interval
+                    );
                     if (!$normalized) {
                         continue;
                     }
@@ -290,7 +307,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                     'consumer_secret' => $raw_options['consumer_secret'],
                 ];
 
-                $normalized = self::normalize_connection($legacy, 'default');
+                $normalized = self::normalize_connection($legacy, 'default', $default_connection_interval);
                 if ($normalized) {
                     $connections[$normalized['id']] = $normalized;
                 }
@@ -359,10 +376,10 @@ if (!class_exists('Azinsanaat_Connection')) {
             $options = self::get_plugin_options();
             $connections = $options['connections'];
             $connection_message = self::get_transient_message('azinsanaat_connection_status_message');
-            $selected_interval = $options['sync_interval'] ?? '15min';
+            $default_sync_interval = $options['sync_interval'] ?? '15min';
             $has_connections = !empty($connections);
             $option_key = self::OPTION_KEY;
-
+            $sync_intervals = self::get_sync_intervals();
             ?>
             <div class="wrap">
                 <h1><?php esc_html_e('تنظیمات اتصال آذین صنعت', 'azinsanaat-connection'); ?></h1>
@@ -381,6 +398,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                         <?php if ($has_connections) : ?>
                             <?php foreach ($connections as $connection) :
                                 $connection_id = esc_attr($connection['id']);
+                                $connection_interval = $connection['sync_interval'] ?? $default_sync_interval;
                                 ?>
                                 <div class="azinsanaat-connection-item">
                                     <input type="hidden" name="<?php echo esc_attr($option_key); ?>[connections][<?php echo esc_attr($connection['id']); ?>][id]" value="<?php echo esc_attr($connection['id']); ?>">
@@ -401,6 +419,15 @@ if (!class_exists('Azinsanaat_Connection')) {
                                         <label for="azinsanaat-connection-secret-<?php echo $connection_id; ?>"><?php esc_html_e('Consumer Secret', 'azinsanaat-connection'); ?></label>
                                         <input id="azinsanaat-connection-secret-<?php echo $connection_id; ?>" type="text" class="regular-text" name="<?php echo esc_attr($option_key); ?>[connections][<?php echo esc_attr($connection['id']); ?>][consumer_secret]" value="<?php echo esc_attr($connection['consumer_secret']); ?>" required>
                                     </p>
+                                    <p>
+                                        <label for="azinsanaat-connection-sync-<?php echo $connection_id; ?>"><?php esc_html_e('بازه زمانی همگام‌سازی خودکار', 'azinsanaat-connection'); ?></label>
+                                        <select id="azinsanaat-connection-sync-<?php echo $connection_id; ?>" name="<?php echo esc_attr($option_key); ?>[connections][<?php echo esc_attr($connection['id']); ?>][sync_interval]">
+                                            <?php foreach ($sync_intervals as $key => $interval) : ?>
+                                                <option value="<?php echo esc_attr($key); ?>" <?php selected($connection_interval, $key); ?>><?php echo esc_html($interval['label']); ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                        <span class="description"><?php esc_html_e('زمان‌بندی اجرای خودکار به‌روزرسانی قیمت و موجودی محصولات متصل.', 'azinsanaat-connection'); ?></span>
+                                    </p>
                                     <p class="azinsanaat-connection-actions">
                                         <button type="button" class="button-link-delete azinsanaat-remove-connection"><?php esc_html_e('حذف این اتصال', 'azinsanaat-connection'); ?></button>
                                     </p>
@@ -413,22 +440,6 @@ if (!class_exists('Azinsanaat_Connection')) {
                     <p>
                         <button type="button" class="button button-secondary" id="azinsanaat-add-connection"><?php esc_html_e('افزودن اتصال جدید', 'azinsanaat-connection'); ?></button>
                     </p>
-                    <h2><?php esc_html_e('زمان‌بندی همگام‌سازی', 'azinsanaat-connection'); ?></h2>
-                    <table class="form-table" role="presentation">
-                        <tbody>
-                        <tr>
-                            <th scope="row"><label for="azinsanaat-sync-interval"><?php esc_html_e('بازه زمانی همگام‌سازی خودکار', 'azinsanaat-connection'); ?></label></th>
-                            <td>
-                                <select id="azinsanaat-sync-interval" name="<?php echo esc_attr(self::OPTION_KEY); ?>[sync_interval]">
-                                    <?php foreach (self::get_sync_intervals() as $key => $interval) : ?>
-                                        <option value="<?php echo esc_attr($key); ?>" <?php selected($selected_interval, $key); ?>><?php echo esc_html($interval['label']); ?></option>
-                                    <?php endforeach; ?>
-                                </select>
-                                <p class="description"><?php esc_html_e('زمان‌بندی اجرای خودکار به‌روزرسانی قیمت و موجودی محصولات متصل.', 'azinsanaat-connection'); ?></p>
-                            </td>
-                        </tr>
-                        </tbody>
-                    </table>
                     <?php submit_button(__('ذخیره تنظیمات', 'azinsanaat-connection')); ?>
                 </form>
                 <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin-top:1.5rem;">
@@ -467,6 +478,15 @@ if (!class_exists('Azinsanaat_Connection')) {
                             <label for="azinsanaat-connection-secret-__key__"><?php esc_html_e('Consumer Secret', 'azinsanaat-connection'); ?></label>
                             <input id="azinsanaat-connection-secret-__key__" type="text" class="regular-text" name="<?php echo esc_attr($option_key); ?>[connections][__key__][consumer_secret]" value="" required>
                         </p>
+                        <p>
+                            <label for="azinsanaat-connection-sync-__key__"><?php esc_html_e('بازه زمانی همگام‌سازی خودکار', 'azinsanaat-connection'); ?></label>
+                            <select id="azinsanaat-connection-sync-__key__" name="<?php echo esc_attr($option_key); ?>[connections][__key__][sync_interval]">
+                                <?php foreach ($sync_intervals as $key => $interval) : ?>
+                                    <option value="<?php echo esc_attr($key); ?>" <?php selected($default_sync_interval, $key); ?>><?php echo esc_html($interval['label']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <span class="description"><?php esc_html_e('زمان‌بندی اجرای خودکار به‌روزرسانی قیمت و موجودی محصولات متصل.', 'azinsanaat-connection'); ?></span>
+                        </p>
                         <p class="azinsanaat-connection-actions">
                             <button type="button" class="button-link-delete azinsanaat-remove-connection"><?php esc_html_e('حذف این اتصال', 'azinsanaat-connection'); ?></button>
                         </p>
@@ -489,6 +509,10 @@ if (!class_exists('Azinsanaat_Connection')) {
                     .azinsanaat-connections-container .azinsanaat-connection-item input.regular-text {
                         width: 100%;
                         max-width: 100%;
+                    }
+
+                    .azinsanaat-connections-container .azinsanaat-connection-item select {
+                        min-width: 200px;
                     }
 
                     .azinsanaat-connection-actions {
@@ -2465,19 +2489,30 @@ if (!class_exists('Azinsanaat_Connection')) {
             return admin_url('admin.php?page=azinsanaat-connection-linked-products');
         }
 
-        public static function run_scheduled_sync(): void
+        public static function run_scheduled_sync(?string $connection_id = null): void
         {
+            $connection_id = $connection_id ? sanitize_key($connection_id) : '';
+
+            $meta_query = [
+                [
+                    'key'     => self::META_REMOTE_ID,
+                    'compare' => 'EXISTS',
+                ],
+            ];
+
+            if ($connection_id) {
+                $meta_query[] = [
+                    'key'   => self::META_REMOTE_CONNECTION,
+                    'value' => $connection_id,
+                ];
+            }
+
             $products = get_posts([
                 'post_type'      => 'product',
                 'post_status'    => 'any',
                 'fields'         => 'ids',
                 'posts_per_page' => -1,
-                'meta_query'     => [
-                    [
-                        'key'     => self::META_REMOTE_ID,
-                        'compare' => 'EXISTS',
-                    ],
-                ],
+                'meta_query'     => $meta_query,
             ]);
 
             if (empty($products)) {
@@ -2490,12 +2525,16 @@ if (!class_exists('Azinsanaat_Connection')) {
                     continue;
                 }
 
-                $connection_id = self::get_product_connection_id($product_id);
-                if (!$connection_id) {
+                $product_connection_id = $connection_id ?: self::get_product_connection_id($product_id);
+                if (!$product_connection_id) {
                     continue;
                 }
 
-                $result = self::sync_product_with_remote($product_id, $remote_id, $connection_id);
+                if ($connection_id && $product_connection_id !== $connection_id) {
+                    continue;
+                }
+
+                $result = self::sync_product_with_remote($product_id, $remote_id, $product_connection_id);
 
                 if (is_wp_error($result)) {
                     error_log(sprintf('Azinsanaat Connection: sync failed for product #%1$d - %2$s', $product_id, $result->get_error_message()));
@@ -2517,28 +2556,45 @@ if (!class_exists('Azinsanaat_Connection')) {
 
         public static function ensure_cron_schedule(): void
         {
-            if (!wp_next_scheduled(self::CRON_HOOK)) {
-                self::schedule_event();
+            self::clear_legacy_cron_events();
+            self::schedule_events_for_connections();
+        }
+
+        protected static function schedule_events_for_connections(?array $connections = null): void
+        {
+            if ($connections === null) {
+                $options = self::get_plugin_options();
+                $connections = $options['connections'];
+            }
+
+            if (empty($connections) || !is_array($connections)) {
+                return;
+            }
+
+            foreach ($connections as $connection) {
+                if (!is_array($connection) || empty($connection['id'])) {
+                    continue;
+                }
+
+                $interval_key = isset($connection['sync_interval']) ? (string) $connection['sync_interval'] : '';
+                self::schedule_connection_event($connection['id'], $interval_key);
             }
         }
 
-        protected static function schedule_event(?string $interval_key = null): void
+        protected static function schedule_connection_event(string $connection_id, string $interval_key): void
         {
             $intervals = self::get_sync_intervals();
-
-            if ($interval_key === null) {
-                $options = get_option(self::OPTION_KEY);
-                $interval_key = is_array($options) && isset($options['sync_interval']) ? $options['sync_interval'] : '15min';
-            }
+            $interval_key = $interval_key ? self::sanitize_sync_interval($interval_key) : '15min';
 
             if (!isset($intervals[$interval_key])) {
                 $interval_key = '15min';
             }
 
             $recurrence = 'azinsanaat_' . $interval_key;
+            $hook_args = [$connection_id];
 
-            if (!wp_next_scheduled(self::CRON_HOOK)) {
-                wp_schedule_event(time() + $intervals[$interval_key]['interval'], $recurrence, self::CRON_HOOK);
+            if (!wp_next_scheduled(self::CRON_HOOK, $hook_args)) {
+                wp_schedule_event(time() + $intervals[$interval_key]['interval'], $recurrence, self::CRON_HOOK, $hook_args);
             }
         }
 
@@ -2547,23 +2603,24 @@ if (!class_exists('Azinsanaat_Connection')) {
             wp_clear_scheduled_hook(self::CRON_HOOK);
         }
 
+        protected static function clear_legacy_cron_events(): void
+        {
+            wp_clear_scheduled_hook(self::CRON_HOOK, []);
+        }
+
         public static function handle_options_updated($old_value, $value, $option): void
         {
-            $old_interval = is_array($old_value) && isset($old_value['sync_interval']) ? $old_value['sync_interval'] : '';
-            $new_interval = is_array($value) && isset($value['sync_interval']) ? $value['sync_interval'] : '';
-
-            if ($old_interval === $new_interval) {
-                return;
-            }
-
             self::clear_scheduled_event();
-            self::schedule_event($new_interval);
+            $connections = is_array($value) && isset($value['connections']) && is_array($value['connections'])
+                ? array_values($value['connections'])
+                : [];
+            self::schedule_events_for_connections($connections);
         }
 
         public static function activate(): void
         {
             self::clear_scheduled_event();
-            self::schedule_event();
+            self::schedule_events_for_connections();
         }
 
         public static function deactivate(): void
