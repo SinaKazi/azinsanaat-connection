@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Azinsanaat Connection
  * Description: اتصال به آذین صنعت و همگام‌سازی محصولات از طریق API ووکامرس.
- * Version:     1.8.0
+ * Version:     1.8.1
  * Author:      Sina Kazemi
  * Requires PHP: 7.4
  */
