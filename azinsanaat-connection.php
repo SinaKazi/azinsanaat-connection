@@ -1490,16 +1490,37 @@ if (!class_exists('Azinsanaat_Connection')) {
             update_post_meta($post_id, '_manage_stock', $manage_stock);
 
             if (!empty($data['images']) && is_array($data['images'])) {
+                $gallery_ids = [];
+                $featured_id = 0;
+
                 foreach ($data['images'] as $image) {
                     $image_url = $image['src'] ?? '';
                     if (!$image_url) {
                         continue;
                     }
 
-                    $attachment_id = self::set_featured_image_from_url($post_id, esc_url_raw($image_url));
-                    if (!is_wp_error($attachment_id) && $attachment_id) {
-                        break;
+                    $image_url = esc_url_raw($image_url);
+
+                    if ($featured_id === 0) {
+                        $attachment_id = self::set_featured_image_from_url($post_id, $image_url);
+                        if (is_wp_error($attachment_id) || !$attachment_id) {
+                            continue;
+                        }
+
+                        $featured_id = $attachment_id;
+                        continue;
                     }
+
+                    $attachment_id = self::sideload_product_image($post_id, $image_url);
+                    if (is_wp_error($attachment_id) || !$attachment_id) {
+                        continue;
+                    }
+
+                    $gallery_ids[] = $attachment_id;
+                }
+
+                if (!empty($gallery_ids)) {
+                    update_post_meta($post_id, '_product_image_gallery', implode(',', $gallery_ids));
                 }
             }
 
@@ -1614,17 +1635,7 @@ if (!class_exists('Azinsanaat_Connection')) {
 
         protected static function set_featured_image_from_url(int $post_id, string $image_url)
         {
-            if (empty($image_url)) {
-                return false;
-            }
-
-            if (!function_exists('media_sideload_image')) {
-                require_once ABSPATH . 'wp-admin/includes/media.php';
-                require_once ABSPATH . 'wp-admin/includes/file.php';
-                require_once ABSPATH . 'wp-admin/includes/image.php';
-            }
-
-            $attachment_id = media_sideload_image($image_url, $post_id, null, 'id');
+            $attachment_id = self::sideload_product_image($post_id, $image_url);
 
             if (is_wp_error($attachment_id)) {
                 return $attachment_id;
@@ -1635,6 +1646,21 @@ if (!class_exists('Azinsanaat_Connection')) {
             }
 
             return $attachment_id;
+        }
+
+        protected static function sideload_product_image(int $post_id, string $image_url)
+        {
+            if (empty($image_url)) {
+                return false;
+            }
+
+            if (!function_exists('media_sideload_image')) {
+                require_once ABSPATH . 'wp-admin/includes/media.php';
+                require_once ABSPATH . 'wp-admin/includes/file.php';
+                require_once ABSPATH . 'wp-admin/includes/image.php';
+            }
+
+            return media_sideload_image($image_url, $post_id, null, 'id');
         }
 
         protected static function format_stock_status(string $status): string
