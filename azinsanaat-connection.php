@@ -864,10 +864,19 @@ if (!class_exists('Azinsanaat_Connection')) {
                 $site_categories = [];
             }
 
+            $bulk_creation_url = self::get_bulk_product_creation_url($selected_connection_id);
+
             ?>
             <div class="wrap">
                 <h1><?php esc_html_e('محصولات وب‌سرویس آذین صنعت', 'azinsanaat-connection'); ?></h1>
                 <p class="description"><?php echo esc_html(sprintf(__('اتصال فعال: %s', 'azinsanaat-connection'), $selected_connection_label)); ?></p>
+                <?php if ($bulk_creation_url) : ?>
+                    <p class="azinsanaat-products-actions">
+                        <a class="button button-primary" href="<?php echo esc_url($bulk_creation_url); ?>">
+                            <?php esc_html_e('ساخت محصول گروهی', 'azinsanaat-connection'); ?>
+                        </a>
+                    </p>
+                <?php endif; ?>
                 <?php if ($error_message) : ?>
                     <div class="notice notice-error"><p><?php echo esc_html($error_message); ?></p></div>
                 <?php endif; ?>
@@ -922,6 +931,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                             <th><?php esc_html_e('وضعیت موجودی', 'azinsanaat-connection'); ?></th>
                             <th><?php esc_html_e('تعداد موجودی', 'azinsanaat-connection'); ?></th>
                             <th><?php esc_html_e('دسته‌بندی سایت', 'azinsanaat-connection'); ?></th>
+                            <th><?php esc_html_e('ویرایش محصول', 'azinsanaat-connection'); ?></th>
                             <th><?php esc_html_e('عملیات', 'azinsanaat-connection'); ?></th>
                         </tr>
                         </thead>
@@ -938,6 +948,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                                 $remote_product_id = (int) ($product['id'] ?? 0);
                                 $connection_lookup_key = $remote_product_id ? $selected_connection_id . '|' . $remote_product_id : '';
                                 $is_connected = $connection_lookup_key && isset($connected_remote_ids[$connection_lookup_key]);
+                                $connected_product_id = $is_connected ? (int) $connected_remote_ids[$connection_lookup_key] : 0;
                                 $form_id = 'azinsanaat-import-form-' . $remote_product_id;
                                 ?>
                                 <td>
@@ -961,6 +972,24 @@ if (!class_exists('Azinsanaat_Connection')) {
                                             <?php endforeach; ?>
                                         </select>
                                     <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php
+                                    if ($connected_product_id) {
+                                        $edit_link = get_edit_post_link($connected_product_id);
+                                        if ($edit_link) {
+                                            ?>
+                                            <a href="<?php echo esc_url($edit_link); ?>">
+                                                <?php esc_html_e('ویرایش', 'azinsanaat-connection'); ?>
+                                            </a>
+                                            <?php
+                                        } else {
+                                            echo '—';
+                                        }
+                                    } else {
+                                        echo '—';
+                                    }
+                                    ?>
                                 </td>
                                 <td>
                                     <form
@@ -2760,6 +2789,22 @@ if (!class_exists('Azinsanaat_Connection')) {
             }
 
             return !empty($sanitized) ? add_query_arg($sanitized, $url) : $url;
+        }
+
+        /**
+         * Returns the destination URL for bulk product creation.
+         */
+        protected static function get_bulk_product_creation_url(string $connection_id = ''): string
+        {
+            $default_url = admin_url('admin.php?import=woocommerce_products_csv');
+
+            if ($connection_id !== '') {
+                $default_url = add_query_arg('connection_id', $connection_id, $default_url);
+            }
+
+            $filtered = apply_filters('azinsanaat_connection_bulk_creation_url', $default_url, $connection_id);
+
+            return is_string($filtered) && $filtered !== '' ? $filtered : $default_url;
         }
     }
 }
