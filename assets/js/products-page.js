@@ -37,6 +37,15 @@
 
         var productId = parseInt($form.data('productId'), 10) || 0;
         var connectionId = $form.data('connectionId') || $form.find('input[name="connection_id"]').val() || '';
+        var siteCategoryId = '';
+        var $row = $form.closest('tr');
+
+        if ($row.length) {
+            var $categorySelect = $row.find('.azinsanaat-site-category-select');
+            if ($categorySelect.length) {
+                siteCategoryId = $categorySelect.val() || '';
+            }
+        }
         if (!productId) {
             return;
         }
@@ -61,7 +70,8 @@
                 action: 'azinsanaat_import_product',
                 product_id: productId,
                 nonce: nonce,
-                connection_id: connectionId
+                connection_id: connectionId,
+                site_category_id: siteCategoryId
             }
         }).done(function (response) {
             if (response && response.success) {
