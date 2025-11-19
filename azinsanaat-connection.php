@@ -599,7 +599,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                     'azinsanaat-products-page',
                     plugin_dir_url(__FILE__) . 'assets/js/products-page.js',
                     ['jquery'],
-                    '1.1.0',
+                    '1.2.0',
                     true
                 );
 
@@ -759,7 +759,6 @@ if (!class_exists('Azinsanaat_Connection')) {
             $error_message = '';
             $current_page = isset($_GET['paged']) ? max(1, absint($_GET['paged'])) : 1;
             $per_page = 20;
-            $search_query = isset($_GET['s']) ? sanitize_text_field(wp_unslash($_GET['s'])) : '';
             $stock_filter = isset($_GET['stock_status']) ? sanitize_text_field(wp_unslash($_GET['stock_status'])) : '';
             $allowed_stock_statuses = [
                 'instock'    => __('موجود', 'azinsanaat-connection'),
@@ -779,10 +778,6 @@ if (!class_exists('Azinsanaat_Connection')) {
                     'page'     => $current_page,
                     'status'   => 'publish',
                 ];
-
-                if ($search_query !== '') {
-                    $request_args['search'] = $search_query;
-                }
 
                 $request_args['stock_status'] = $stock_filter;
 
@@ -985,14 +980,6 @@ if (!class_exists('Azinsanaat_Connection')) {
                             <option value="<?php echo esc_attr($connection_option['id']); ?>" <?php selected($selected_connection_id, $connection_option['id']); ?>><?php echo esc_html($connection_option['label']); ?></option>
                         <?php endforeach; ?>
                     </select>
-                    <label for="azinsanaat-search" class="screen-reader-text"><?php esc_html_e('جستجو در محصولات', 'azinsanaat-connection'); ?></label>
-                    <input
-                        type="search"
-                        id="azinsanaat-search"
-                        name="s"
-                        value="<?php echo esc_attr($search_query); ?>"
-                        placeholder="<?php esc_attr_e('جستجو...', 'azinsanaat-connection'); ?>"
-                    >
                     <label for="azinsanaat-stock-status" class="screen-reader-text"><?php esc_html_e('فیلتر وضعیت موجودی', 'azinsanaat-connection'); ?></label>
                     <select id="azinsanaat-stock-status" name="stock_status">
                         <?php foreach ($allowed_stock_statuses as $value => $label) : ?>
@@ -1001,6 +988,22 @@ if (!class_exists('Azinsanaat_Connection')) {
                     </select>
                     <?php submit_button(__('اعمال فیلتر', 'azinsanaat-connection'), 'secondary', '', false); ?>
                 </form>
+                <?php if (!$error_message) : ?>
+                    <div class="azinsanaat-products-search">
+                        <label for="azinsanaat-products-search" class="screen-reader-text"><?php esc_html_e('جستجو در نتایج فعلی', 'azinsanaat-connection'); ?></label>
+                        <input
+                            type="search"
+                            id="azinsanaat-products-search"
+                            class="azinsanaat-products-search-input"
+                            placeholder="<?php esc_attr_e('جستجو در محصولات نمایش داده شده...', 'azinsanaat-connection'); ?>"
+                            autocomplete="off"
+                        >
+                        <p class="description"><?php esc_html_e('این جستجو فقط روی نتایج لیست شده در جدول زیر اعمال می‌شود.', 'azinsanaat-connection'); ?></p>
+                        <p class="description azinsanaat-products-search-empty" style="display:none;">
+                            <?php esc_html_e('هیچ محصولی با عبارت جستجو شده در نتایج فعلی یافت نشد.', 'azinsanaat-connection'); ?>
+                        </p>
+                    </div>
+                <?php endif; ?>
                 <?php if (!$error_message && empty($products)) : ?>
                     <p><?php esc_html_e('هیچ محصولی یافت نشد.', 'azinsanaat-connection'); ?></p>
                 <?php elseif (!$error_message) : ?>
@@ -1014,7 +1017,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                             font-size: 12px;
                         }
                     </style>
-                    <table class="widefat striped">
+                    <table class="widefat striped azinsanaat-products-table">
                         <thead>
                         <tr>
                             <th><?php esc_html_e('ردیف', 'azinsanaat-connection'); ?></th>
@@ -1161,10 +1164,6 @@ if (!class_exists('Azinsanaat_Connection')) {
                         $query_args = [
                             'connection_id' => $selected_connection_id,
                         ];
-
-                        if ($search_query !== '') {
-                            $query_args['s'] = $search_query;
-                        }
 
                         if ($stock_filter !== '') {
                             $query_args['stock_status'] = $stock_filter;
