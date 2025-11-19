@@ -998,29 +998,25 @@ if (!class_exists('Azinsanaat_Connection')) {
                             <option value="<?php echo esc_attr($value); ?>" <?php selected($stock_filter, $value); ?>><?php echo esc_html($label); ?></option>
                         <?php endforeach; ?>
                     </select>
-                    <?php submit_button(__('اعمال فیلتر', 'azinsanaat-connection'), 'secondary', '', false); ?>
-                </form>
-                <?php if (!$error_message) : ?>
-                    <div class="azinsanaat-products-search">
-                        <div class="azinsanaat-products-search-field">
-                            <label for="azinsanaat-products-search" class="screen-reader-text"><?php esc_html_e('جستجو در نتایج فعلی', 'azinsanaat-connection'); ?></label>
-                            <input
-                                type="search"
-                                id="azinsanaat-products-search"
-                                class="azinsanaat-products-search-input"
-                                placeholder="<?php esc_attr_e('جستجو در محصولات نمایش داده شده...', 'azinsanaat-connection'); ?>"
-                                autocomplete="off"
-                            >
-                            <button type="button" class="button button-secondary azinsanaat-products-search-button">
-                                <?php esc_html_e('جستجو', 'azinsanaat-connection'); ?>
-                            </button>
-                        </div>
-                        <p class="description"><?php esc_html_e('برای اعمال جستجو عبارت مورد نظر را وارد کرده و دکمه جستجو را بزنید (یا کلید اینتر را فشار دهید).', 'azinsanaat-connection'); ?></p>
-                        <p class="description azinsanaat-products-search-empty" style="display:none;">
-                            <?php esc_html_e('هیچ محصولی با عبارت جستجو شده در نتایج فعلی یافت نشد.', 'azinsanaat-connection'); ?>
-                        </p>
+                    <div class="azinsanaat-products-search-field">
+                        <label for="azinsanaat-products-search" class="screen-reader-text"><?php esc_html_e('جستجو در نتایج فعلی', 'azinsanaat-connection'); ?></label>
+                        <input
+                            type="search"
+                            id="azinsanaat-products-search"
+                            class="azinsanaat-products-search-input"
+                            placeholder="<?php esc_attr_e('جستجو در محصولات نمایش داده شده...', 'azinsanaat-connection'); ?>"
+                            autocomplete="off"
+                        >
+                        <button type="button" class="button button-secondary azinsanaat-products-search-button">
+                            <?php esc_html_e('جستجو', 'azinsanaat-connection'); ?>
+                        </button>
                     </div>
-                <?php endif; ?>
+                    <?php submit_button(__('اعمال فیلتر', 'azinsanaat-connection'), 'secondary', '', false); ?>
+                    <p class="description azinsanaat-products-search-description"><?php esc_html_e('برای اعمال جستجو عبارت مورد نظر را وارد کرده و دکمه جستجو را بزنید (یا کلید اینتر را فشار دهید).', 'azinsanaat-connection'); ?></p>
+                    <p class="description azinsanaat-products-search-empty" style="display:none;">
+                        <?php esc_html_e('هیچ محصولی با عبارت جستجو شده در نتایج فعلی یافت نشد.', 'azinsanaat-connection'); ?>
+                    </p>
+                </form>
                 <?php if (!$error_message && empty($products)) : ?>
                     <p><?php esc_html_e('هیچ محصولی یافت نشد.', 'azinsanaat-connection'); ?></p>
                 <?php elseif (!$error_message) : ?>
