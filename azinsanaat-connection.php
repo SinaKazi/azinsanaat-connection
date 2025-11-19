@@ -599,7 +599,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                     'azinsanaat-products-page',
                     plugin_dir_url(__FILE__) . 'assets/js/products-page.js',
                     ['jquery'],
-                    '1.1.0',
+                    '1.2.0',
                     true
                 );
 
@@ -936,6 +936,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             }
 
             $bulk_creation_url = self::get_bulk_product_creation_url($selected_connection_id);
+            $available_import_sections = self::get_available_import_sections();
 
             ?>
             <div class="wrap">
@@ -1025,6 +1026,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                             <th><?php esc_html_e('تعداد موجودی', 'azinsanaat-connection'); ?></th>
                             <th><?php esc_html_e('دسته‌بندی سایت', 'azinsanaat-connection'); ?></th>
                             <th><?php esc_html_e('ویرایش محصول', 'azinsanaat-connection'); ?></th>
+                            <th><?php esc_html_e('موارد واردسازی', 'azinsanaat-connection'); ?></th>
                             <th><?php esc_html_e('عملیات', 'azinsanaat-connection'); ?></th>
                         </tr>
                         </thead>
@@ -1085,6 +1087,27 @@ if (!class_exists('Azinsanaat_Connection')) {
                                     ?>
                                 </td>
                                 <td>
+                                    <fieldset class="azinsanaat-import-options">
+                                        <legend class="screen-reader-text"><?php esc_html_e('انتخاب موارد واردسازی از وب‌سرویس', 'azinsanaat-connection'); ?></legend>
+                                        <input type="hidden" name="import_sections_submitted" value="1" form="<?php echo esc_attr($form_id); ?>">
+                                        <?php foreach ($available_import_sections as $section_key => $section_label) :
+                                            $option_id = sprintf('azinsanaat-import-%s-%d', $section_key, (int) $product['id']);
+                                            ?>
+                                            <label for="<?php echo esc_attr($option_id); ?>">
+                                                <input
+                                                    type="checkbox"
+                                                    id="<?php echo esc_attr($option_id); ?>"
+                                                    name="import_sections[]"
+                                                    value="<?php echo esc_attr($section_key); ?>"
+                                                    form="<?php echo esc_attr($form_id); ?>"
+                                                    checked
+                                                >
+                                                <?php echo esc_html($section_label); ?>
+                                            </label><br>
+                                        <?php endforeach; ?>
+                                    </fieldset>
+                                </td>
+                                <td>
                                     <form
                                         id="<?php echo esc_attr($form_id); ?>"
                                         method="post"
@@ -1118,7 +1141,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                                 $variation_info = $product_variation_details[$remote_product_id];
                                 ?>
                                 <tr class="azinsanaat-product-variations-row">
-                                    <td colspan="8">
+                                    <td colspan="9">
                                         <?php if (!empty($variation_info['error'])) : ?>
                                             <p class="description"><?php echo esc_html($variation_info['error']); ?></p>
                                         <?php elseif (!empty($variation_info['variations'])) : ?>
@@ -1343,7 +1366,19 @@ if (!class_exists('Azinsanaat_Connection')) {
 
             $connection_id = isset($_POST['connection_id']) ? sanitize_key(wp_unslash($_POST['connection_id'])) : '';
             $site_category_id = isset($_POST['site_category_id']) ? absint(wp_unslash($_POST['site_category_id'])) : 0;
-            $result = self::import_remote_product($product_id, $connection_id ?: null, $site_category_id ?: null);
+            $sections_submitted = isset($_POST['import_sections_submitted']);
+            $raw_import_sections = null;
+            if ($sections_submitted) {
+                $raw_import_sections = isset($_POST['import_sections']) ? wp_unslash((array) $_POST['import_sections']) : [];
+            }
+            $import_sections = self::prepare_import_sections($raw_import_sections, $sections_submitted);
+
+            $result = self::import_remote_product(
+                $product_id,
+                $connection_id ?: null,
+                $site_category_id ?: null,
+                $import_sections
+            );
 
             if (is_wp_error($result)) {
                 self::set_transient_message('azinsanaat_connection_import_notice', [
@@ -1385,7 +1420,13 @@ if (!class_exists('Azinsanaat_Connection')) {
 
             $connection_id = isset($_POST['connection_id']) ? sanitize_key(wp_unslash($_POST['connection_id'])) : '';
             $site_category_id = isset($_POST['site_category_id']) ? absint(wp_unslash($_POST['site_category_id'])) : 0;
-            $result = self::import_remote_product($product_id, $connection_id ?: null, $site_category_id ?: null);
+            $sections_submitted = isset($_POST['import_sections_submitted']);
+            $raw_import_sections = null;
+            if ($sections_submitted) {
+                $raw_import_sections = isset($_POST['import_sections']) ? wp_unslash((array) $_POST['import_sections']) : [];
+            }
+            $import_sections = self::prepare_import_sections($raw_import_sections, $sections_submitted);
+            $result = self::import_remote_product($product_id, $connection_id ?: null, $site_category_id ?: null, $import_sections);
             if (is_wp_error($result)) {
                 wp_send_json_error([
                     'message' => $result->get_error_message(),
@@ -1406,7 +1447,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             wp_send_json_success($response);
         }
 
-        protected static function import_remote_product(int $product_id, ?string $connection_id = null, ?int $site_category_id = null)
+        protected static function import_remote_product(int $product_id, ?string $connection_id = null, ?int $site_category_id = null, ?array $import_sections = null)
         {
             if (!class_exists('WooCommerce')) {
                 return new WP_Error('azinsanaat_wc_inactive', __('افزونه ووکامرس فعال نیست.', 'azinsanaat-connection'));
@@ -1438,7 +1479,8 @@ if (!class_exists('Azinsanaat_Connection')) {
                 return new WP_Error('azinsanaat_invalid_body', __('پاسخ نامعتبر از سرور دریافت شد.', 'azinsanaat-connection'));
             }
 
-            $result = self::create_pending_product($decoded, $site_category_id, $connection_id ?: null);
+            $normalized_sections = self::normalize_import_sections($import_sections);
+            $result = self::create_pending_product($decoded, $site_category_id, $connection_id ?: null, $normalized_sections);
             if (is_wp_error($result)) {
                 return $result;
             }
@@ -1452,10 +1494,16 @@ if (!class_exists('Azinsanaat_Connection')) {
         /**
          * Creates a pending WooCommerce product locally.
          */
-        protected static function create_pending_product(array $data, ?int $site_category_id = null, ?string $connection_id = null)
+        protected static function create_pending_product(array $data, ?int $site_category_id = null, ?string $connection_id = null, array $import_sections = [])
         {
+            $import_sections = self::normalize_import_sections($import_sections);
+            $should_import_title = in_array('title', $import_sections, true);
+            $should_import_featured_image = in_array('featured_image', $import_sections, true);
+            $should_import_gallery = in_array('gallery', $import_sections, true);
+            $should_import_description = in_array('description', $import_sections, true);
+
             $name = $data['name'] ?? '';
-            if (!$name) {
+            if ($should_import_title && !$name) {
                 return new WP_Error('azinsanaat_missing_name', __('نام محصول در پاسخ API یافت نشد.', 'azinsanaat-connection'));
             }
 
@@ -1467,15 +1515,21 @@ if (!class_exists('Azinsanaat_Connection')) {
                 }
             }
 
-            $short_description = isset($data['short_description']) ? wp_kses_post($data['short_description']) : '';
-            $short_description = preg_replace('/<img[^>]*>/i', '', $short_description);
+            $short_description = '';
+            $post_content = '';
+
+            if ($should_import_description) {
+                $short_description = isset($data['short_description']) ? wp_kses_post($data['short_description']) : '';
+                $short_description = preg_replace('/<img[^>]*>/i', '', $short_description);
+                $post_content = isset($data['description']) ? wp_kses_post($data['description']) : '';
+            }
 
             $post_data = [
-                'post_title'   => wp_strip_all_tags($name),
+                'post_title'   => ($should_import_title && $name !== '') ? wp_strip_all_tags($name) : '',
                 'post_status'  => 'pending',
                 'post_type'    => 'product',
                 'post_excerpt' => $short_description,
-                'post_content' => isset($data['description']) ? wp_kses_post($data['description']) : '',
+                'post_content' => $post_content,
             ];
 
             $post_id = wp_insert_post($post_data, true);
@@ -1537,7 +1591,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             $manage_stock = !empty($data['manage_stock']) ? 'yes' : 'no';
             update_post_meta($post_id, '_manage_stock', $manage_stock);
 
-            if (!empty($data['images']) && is_array($data['images'])) {
+            if (!empty($data['images']) && is_array($data['images']) && ($should_import_featured_image || $should_import_gallery)) {
                 $gallery_ids = [];
                 $featured_id = 0;
 
@@ -1549,30 +1603,78 @@ if (!class_exists('Azinsanaat_Connection')) {
 
                     $image_url = esc_url_raw($image_url);
 
-                    if ($featured_id === 0) {
+                    if ($should_import_featured_image && $featured_id === 0) {
                         $attachment_id = self::set_featured_image_from_url($post_id, $image_url);
                         if (is_wp_error($attachment_id) || !$attachment_id) {
                             continue;
                         }
 
                         $featured_id = $attachment_id;
-                        continue;
+                        if (!$should_import_gallery) {
+                            continue;
+                        }
                     }
 
-                    $attachment_id = self::sideload_product_image($post_id, $image_url);
-                    if (is_wp_error($attachment_id) || !$attachment_id) {
-                        continue;
-                    }
+                    if ($should_import_gallery) {
+                        $attachment_id = self::sideload_product_image($post_id, $image_url);
+                        if (is_wp_error($attachment_id) || !$attachment_id) {
+                            continue;
+                        }
 
-                    $gallery_ids[] = $attachment_id;
+                        $gallery_ids[] = $attachment_id;
+                    }
                 }
 
-                if (!empty($gallery_ids)) {
+                if ($should_import_gallery && !empty($gallery_ids)) {
                     update_post_meta($post_id, '_product_image_gallery', implode(',', $gallery_ids));
                 }
             }
 
             return $post_id;
+        }
+
+        protected static function get_available_import_sections(): array
+        {
+            return [
+                'title'          => __('عنوان', 'azinsanaat-connection'),
+                'featured_image' => __('عکس شاخص', 'azinsanaat-connection'),
+                'gallery'        => __('گالری محصول', 'azinsanaat-connection'),
+                'description'    => __('توضیحات', 'azinsanaat-connection'),
+            ];
+        }
+
+        protected static function get_default_import_sections(): array
+        {
+            return array_keys(self::get_available_import_sections());
+        }
+
+        protected static function normalize_import_sections(?array $sections): array
+        {
+            if ($sections === null) {
+                return self::get_default_import_sections();
+            }
+
+            $available = array_keys(self::get_available_import_sections());
+            $sanitized = array_map(static function ($value) {
+                return sanitize_key((string) $value);
+            }, $sections);
+            $sanitized = array_filter($sanitized);
+            $sanitized = array_values(array_intersect($sanitized, $available));
+
+            return array_values(array_unique($sanitized));
+        }
+
+        protected static function prepare_import_sections($sections, bool $submitted = false): array
+        {
+            if ($sections === null) {
+                return $submitted ? [] : self::get_default_import_sections();
+            }
+
+            if (!is_array($sections)) {
+                $sections = [$sections];
+            }
+
+            return self::normalize_import_sections($sections);
         }
 
         /**
