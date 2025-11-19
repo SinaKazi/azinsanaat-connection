@@ -777,7 +777,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                 $request_args = [
                     'per_page' => $per_page,
                     'page'     => $current_page,
-                    'status'   => 'any',
+                    'status'   => 'publish',
                 ];
 
                 if ($search_query !== '') {
