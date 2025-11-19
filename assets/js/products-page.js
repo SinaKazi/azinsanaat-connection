@@ -26,92 +26,6 @@
         }
     }
 
-    function normalizeSearchText(value) {
-        if (value === null || typeof value === 'undefined') {
-            return '';
-        }
-
-        return String(value).trim().toLowerCase();
-    }
-
-    function initLocalSearch() {
-        var $table = $('.azinsanaat-products-table');
-        var $searchInput = $('.azinsanaat-products-search-input');
-        var $searchButton = $('.azinsanaat-products-search-button');
-
-        if (!$table.length || !$searchInput.length) {
-            return;
-        }
-
-        var $productRows = $table.find('tbody > tr').not('.azinsanaat-product-variations-row');
-        if (!$productRows.length) {
-            return;
-        }
-
-        var $emptyState = $('.azinsanaat-products-search-empty');
-
-        $productRows.each(function () {
-            var $row = $(this);
-            var curatedText = $row.data('searchText');
-
-            if (typeof curatedText === 'undefined') {
-                curatedText = $row.text();
-            }
-
-            $row.data('azinsanaatSearchText', normalizeSearchText(curatedText));
-        });
-
-        function applySearch(query) {
-            var visibleCount = 0;
-
-            $productRows.each(function () {
-                var $row = $(this);
-                var $variationsRow = $row.next('.azinsanaat-product-variations-row');
-                var rowText = $row.data('azinsanaatSearchText') || '';
-                var matches = !query || rowText.indexOf(query) !== -1;
-
-                if (matches) {
-                    $row.show();
-                    if ($variationsRow.length) {
-                        $variationsRow.show();
-                    }
-                    visibleCount++;
-                } else {
-                    $row.hide();
-                    if ($variationsRow.length) {
-                        $variationsRow.hide();
-                    }
-                }
-            });
-
-            if ($emptyState.length) {
-                if (query && visibleCount === 0) {
-                    $emptyState.show();
-                } else {
-                    $emptyState.hide();
-                }
-            }
-        }
-
-        $searchInput.on('input', function () {
-            applySearch(normalizeSearchText($(this).val()));
-        });
-
-        if ($searchButton.length) {
-            $searchButton.on('click', function (event) {
-                event.preventDefault();
-                applySearch(normalizeSearchText($searchInput.val()));
-            });
-        }
-
-        $searchInput.on('keypress', function (event) {
-            if (event.key === 'Enter') {
-                event.preventDefault();
-                applySearch(normalizeSearchText($searchInput.val()));
-            }
-        });
-    }
-
     $(document).on('submit', '.azinsanaat-import-form', function (event) {
         var $form = $(this);
 
@@ -202,7 +116,4 @@
         });
     });
 
-    $(function () {
-        initLocalSearch();
-    });
 })(jQuery);
