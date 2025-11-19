@@ -26,6 +26,53 @@
         }
     }
 
+    function initLocalSearch() {
+        var $table = $('.azinsanaat-products-table');
+        var $searchInput = $('.azinsanaat-products-search-input');
+
+        if (!$table.length || !$searchInput.length) {
+            return;
+        }
+
+        var $rows = $table.find('tbody tr');
+        if (!$rows.length) {
+            return;
+        }
+
+        var $emptyState = $('.azinsanaat-products-search-empty');
+
+        $rows.each(function () {
+            var $row = $(this);
+            $row.data('azinsanaatSearchText', $.trim($row.text()).toLowerCase());
+        });
+
+        $searchInput.on('input', function () {
+            var query = $.trim($(this).val()).toLowerCase();
+            var visibleCount = 0;
+
+            $rows.each(function () {
+                var $row = $(this);
+                var rowText = $row.data('azinsanaatSearchText') || '';
+                var matches = !query || rowText.indexOf(query) !== -1;
+
+                if (matches) {
+                    $row.show();
+                    visibleCount++;
+                } else {
+                    $row.hide();
+                }
+            });
+
+            if ($emptyState.length) {
+                if (query && visibleCount === 0) {
+                    $emptyState.show();
+                } else {
+                    $emptyState.hide();
+                }
+            }
+        });
+    }
+
     $(document).on('submit', '.azinsanaat-import-form', function (event) {
         var $form = $(this);
 
@@ -114,5 +161,9 @@
                 $button.prop('disabled', false).removeAttr('aria-disabled');
             }
         });
+    });
+
+    $(function () {
+        initLocalSearch();
     });
 })(jQuery);
