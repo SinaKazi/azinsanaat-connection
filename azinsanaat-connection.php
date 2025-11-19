@@ -594,7 +594,11 @@ if (!class_exists('Azinsanaat_Connection')) {
                 );
             }
 
-            if ('azinsanaat-connection_page_azinsanaat-connection-products' === $hook) {
+            $is_products_page = $hook === 'azinsanaat-connection_page_azinsanaat-connection-products'
+                || 0 === strpos($hook, 'azinsanaat-connection_page_azinsanaat-connection-products-')
+                || 0 === strpos($hook, 'azinsanaat-connection_page_azinsanaat-connection-products-network');
+
+            if ($is_products_page) {
                 wp_enqueue_style(
                     'azinsanaat-products-page',
                     plugin_dir_url(__FILE__) . 'assets/css/products-page.css',
