@@ -29,6 +29,7 @@
     function initLocalSearch() {
         var $table = $('.azinsanaat-products-table');
         var $searchInput = $('.azinsanaat-products-search-input');
+        var $searchButton = $('.azinsanaat-products-search-button');
 
         if (!$table.length || !$searchInput.length) {
             return;
@@ -46,8 +47,7 @@
             $row.data('azinsanaatSearchText', $.trim($row.text()).toLowerCase());
         });
 
-        $searchInput.on('input', function () {
-            var query = $.trim($(this).val()).toLowerCase();
+        function applySearch(query) {
             var visibleCount = 0;
 
             $rows.each(function () {
@@ -69,6 +69,24 @@
                 } else {
                     $emptyState.hide();
                 }
+            }
+        }
+
+        $searchInput.on('input', function () {
+            applySearch($.trim($(this).val()).toLowerCase());
+        });
+
+        if ($searchButton.length) {
+            $searchButton.on('click', function (event) {
+                event.preventDefault();
+                applySearch($.trim($searchInput.val()).toLowerCase());
+            });
+        }
+
+        $searchInput.on('keypress', function (event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                applySearch($.trim($searchInput.val()).toLowerCase());
             }
         });
     }
