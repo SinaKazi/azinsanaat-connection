@@ -52,7 +52,13 @@
 
         $rows.each(function () {
             var $row = $(this);
-            $row.data('azinsanaatSearchText', normalizeSearchText($row.text()));
+            var curatedText = $row.data('searchText');
+
+            if (typeof curatedText === 'undefined') {
+                curatedText = $row.text();
+            }
+
+            $row.data('azinsanaatSearchText', normalizeSearchText(curatedText));
         });
 
         function applySearch(query) {

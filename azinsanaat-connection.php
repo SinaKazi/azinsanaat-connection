@@ -1040,8 +1040,18 @@ if (!class_exists('Azinsanaat_Connection')) {
                         </tr>
                         </thead>
                         <tbody>
-                        <?php foreach ($products as $index => $product) : ?>
-                            <tr>
+                        <?php foreach ($products as $index => $product) :
+                            $search_text_parts = [];
+                            $search_text_parts[] = isset($product['id']) ? (string) $product['id'] : '';
+                            $search_text_parts[] = isset($product['name']) ? (string) $product['name'] : '';
+                            $search_text_parts[] = isset($product['price']) ? (string) $product['price'] : '';
+                            $search_text_parts[] = self::format_stock_status($product['stock_status'] ?? '');
+                            $search_text_parts[] = isset($product['stock_quantity']) ? (string) $product['stock_quantity'] : '';
+                            $search_text = sanitize_text_field(trim(implode(' ', array_filter($search_text_parts, static function ($value) {
+                                return $value !== '';
+                            }))));
+                            ?>
+                            <tr data-search-text="<?php echo esc_attr($search_text); ?>">
                                 <td><?php echo esc_html(($index + 1) + (($current_page - 1) * $per_page)); ?></td>
                                 <td><?php echo esc_html($product['id']); ?></td>
                                 <td><?php echo esc_html($product['name']); ?></td>
