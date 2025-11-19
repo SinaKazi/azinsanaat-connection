@@ -26,6 +26,53 @@
         }
     }
 
+    function initLocalSearch() {
+        var $table = $('.azinsanaat-products-table');
+        var $searchInput = $('.azinsanaat-products-search-input');
+
+        if (!$table.length || !$searchInput.length) {
+            return;
+        }
+
+        var $rows = $table.find('tbody tr');
+        if (!$rows.length) {
+            return;
+        }
+
+        var $emptyState = $('.azinsanaat-products-search-empty');
+
+        $rows.each(function () {
+            var $row = $(this);
+            $row.data('azinsanaatSearchText', $.trim($row.text()).toLowerCase());
+        });
+
+        $searchInput.on('input', function () {
+            var query = $.trim($(this).val()).toLowerCase();
+            var visibleCount = 0;
+
+            $rows.each(function () {
+                var $row = $(this);
+                var rowText = $row.data('azinsanaatSearchText') || '';
+                var matches = !query || rowText.indexOf(query) !== -1;
+
+                if (matches) {
+                    $row.show();
+                    visibleCount++;
+                } else {
+                    $row.hide();
+                }
+            });
+
+            if ($emptyState.length) {
+                if (query && visibleCount === 0) {
+                    $emptyState.show();
+                } else {
+                    $emptyState.hide();
+                }
+            }
+        });
+    }
+
     $(document).on('submit', '.azinsanaat-import-form', function (event) {
         var $form = $(this);
 
@@ -38,12 +85,25 @@
         var productId = parseInt($form.data('productId'), 10) || 0;
         var connectionId = $form.data('connectionId') || $form.find('input[name="connection_id"]').val() || '';
         var siteCategoryId = '';
+        var importSections = [];
+        var hasImportOptions = false;
         var $row = $form.closest('tr');
 
         if ($row.length) {
             var $categorySelect = $row.find('.azinsanaat-site-category-select');
             if ($categorySelect.length) {
                 siteCategoryId = $categorySelect.val() || '';
+            }
+
+            var $importOptions = $row.find('.azinsanaat-import-options input[type="checkbox"]');
+            if ($importOptions.length) {
+                hasImportOptions = true;
+                $importOptions.each(function () {
+                    var $checkbox = $(this);
+                    if ($checkbox.is(':checked')) {
+                        importSections.push($checkbox.val());
+                    }
+                });
             }
         }
         if (!productId) {
@@ -62,17 +122,24 @@
             $spinner.addClass('is-active');
         }
 
+        var requestData = {
+            action: 'azinsanaat_import_product',
+            product_id: productId,
+            nonce: nonce,
+            connection_id: connectionId,
+            site_category_id: siteCategoryId,
+            import_sections: importSections
+        };
+
+        if (hasImportOptions) {
+            requestData.import_sections_submitted = 1;
+        }
+
         $.ajax({
             url: settings.ajaxUrl ? settings.ajaxUrl : window.ajaxurl,
             method: 'POST',
             dataType: 'json',
-            data: {
-                action: 'azinsanaat_import_product',
-                product_id: productId,
-                nonce: nonce,
-                connection_id: connectionId,
-                site_category_id: siteCategoryId
-            }
+            data: requestData
         }).done(function (response) {
             if (response && response.success) {
                 success = true;
@@ -94,5 +161,9 @@
                 $button.prop('disabled', false).removeAttr('aria-disabled');
             }
         });
+    });
+
+    $(function () {
+        initLocalSearch();
     });
 })(jQuery);
