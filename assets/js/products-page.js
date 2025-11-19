@@ -38,12 +38,25 @@
         var productId = parseInt($form.data('productId'), 10) || 0;
         var connectionId = $form.data('connectionId') || $form.find('input[name="connection_id"]').val() || '';
         var siteCategoryId = '';
+        var importSections = [];
+        var hasImportOptions = false;
         var $row = $form.closest('tr');
 
         if ($row.length) {
             var $categorySelect = $row.find('.azinsanaat-site-category-select');
             if ($categorySelect.length) {
                 siteCategoryId = $categorySelect.val() || '';
+            }
+
+            var $importOptions = $row.find('.azinsanaat-import-options input[type="checkbox"]');
+            if ($importOptions.length) {
+                hasImportOptions = true;
+                $importOptions.each(function () {
+                    var $checkbox = $(this);
+                    if ($checkbox.is(':checked')) {
+                        importSections.push($checkbox.val());
+                    }
+                });
             }
         }
         if (!productId) {
@@ -62,17 +75,24 @@
             $spinner.addClass('is-active');
         }
 
+        var requestData = {
+            action: 'azinsanaat_import_product',
+            product_id: productId,
+            nonce: nonce,
+            connection_id: connectionId,
+            site_category_id: siteCategoryId,
+            import_sections: importSections
+        };
+
+        if (hasImportOptions) {
+            requestData.import_sections_submitted = 1;
+        }
+
         $.ajax({
             url: settings.ajaxUrl ? settings.ajaxUrl : window.ajaxurl,
             method: 'POST',
             dataType: 'json',
-            data: {
-                action: 'azinsanaat_import_product',
-                product_id: productId,
-                nonce: nonce,
-                connection_id: connectionId,
-                site_category_id: siteCategoryId
-            }
+            data: requestData
         }).done(function (response) {
             if (response && response.success) {
                 success = true;
