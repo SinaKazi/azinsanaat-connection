@@ -769,6 +769,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                 $stock_filter = 'instock';
             }
             $total_pages = 1;
+            $total_remote_products_count = 0;
 
             if (is_wp_error($client)) {
                 $error_message = $client->get_error_message();
@@ -824,12 +825,17 @@ if (!class_exists('Azinsanaat_Connection')) {
                             if ($total_pages < 1) {
                                 $total_pages = 1;
                             }
+                            $total_remote_products_count = (int) wp_remote_retrieve_header($response, 'x-wp-total');
+                            if ($total_remote_products_count < 0) {
+                                $total_remote_products_count = 0;
+                            }
                         }
                     }
                 }
             }
 
             $connected_remote_ids = [];
+            $connected_products_count_by_connection = [];
             $product_variation_details = [];
 
             if (!$error_message && !empty($products)) {
@@ -869,28 +875,34 @@ if (!class_exists('Azinsanaat_Connection')) {
                         'variations' => $formatted_variations,
                     ];
                 }
+            }
 
-                $connected_posts = get_posts([
-                    'post_type'      => 'product',
-                    'post_status'    => ['publish', 'pending', 'draft', 'private'],
-                    'posts_per_page' => -1,
-                    'fields'         => 'ids',
-                    'meta_query'     => [
-                        [
-                            'key'     => self::META_REMOTE_ID,
-                            'compare' => 'EXISTS',
-                        ],
+            $connected_posts = get_posts([
+                'post_type'      => 'product',
+                'post_status'    => ['publish', 'pending', 'draft', 'private'],
+                'posts_per_page' => -1,
+                'fields'         => 'ids',
+                'meta_query'     => [
+                    [
+                        'key'     => self::META_REMOTE_ID,
+                        'compare' => 'EXISTS',
                     ],
-                ]);
+                ],
+            ]);
 
-                foreach ($connected_posts as $connected_post_id) {
-                    $remote_id = (int) get_post_meta($connected_post_id, self::META_REMOTE_ID, true);
-                    $connection_id = get_post_meta($connected_post_id, self::META_REMOTE_CONNECTION, true);
-                    $connection_id = is_string($connection_id) ? sanitize_key($connection_id) : '';
+            foreach ($connected_posts as $connected_post_id) {
+                $remote_id = (int) get_post_meta($connected_post_id, self::META_REMOTE_ID, true);
+                $connection_id = get_post_meta($connected_post_id, self::META_REMOTE_CONNECTION, true);
+                $connection_id = is_string($connection_id) ? sanitize_key($connection_id) : '';
 
-                    if ($remote_id) {
-                        $key = $connection_id ? $connection_id . '|' . $remote_id : '|' . $remote_id;
-                        $connected_remote_ids[$key] = $connected_post_id;
+                if ($remote_id) {
+                    $key = $connection_id ? $connection_id . '|' . $remote_id : '|' . $remote_id;
+                    $connected_remote_ids[$key] = $connected_post_id;
+                    if ($connection_id !== '') {
+                        if (!isset($connected_products_count_by_connection[$connection_id])) {
+                            $connected_products_count_by_connection[$connection_id] = 0;
+                        }
+                        $connected_products_count_by_connection[$connection_id]++;
                     }
                 }
             }
@@ -926,6 +938,29 @@ if (!class_exists('Azinsanaat_Connection')) {
                 <?php if ($error_message) : ?>
                     <div class="notice notice-error"><p><?php echo esc_html($error_message); ?></p></div>
                 <?php endif; ?>
+                <?php
+                $selected_connection_connected_count = $connected_products_count_by_connection[$selected_connection_id] ?? 0;
+                ?>
+                <div class="notice notice-info azinsanaat-products-summary">
+                    <p>
+                        <?php if ($total_remote_products_count > 0) : ?>
+                            <?php
+                            printf(
+                                esc_html__('تعداد محصولات متصل شده این وب‌سرویس: %1$s از %2$s محصول موجود.', 'azinsanaat-connection'),
+                                esc_html(number_format_i18n($selected_connection_connected_count)),
+                                esc_html(number_format_i18n($total_remote_products_count))
+                            );
+                            ?>
+                        <?php else : ?>
+                            <?php
+                            printf(
+                                esc_html__('تعداد محصولات متصل شده این وب‌سرویس: %s', 'azinsanaat-connection'),
+                                esc_html(number_format_i18n($selected_connection_connected_count))
+                            );
+                            ?>
+                        <?php endif; ?>
+                    </p>
+                </div>
                 <?php if ($notice) : ?>
                     <div class="notice notice-<?php echo esc_attr($notice['type']); ?>"><p><?php echo esc_html($notice['message']); ?></p></div>
                 <?php endif; ?>
