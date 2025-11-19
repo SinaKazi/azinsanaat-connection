@@ -595,6 +595,13 @@ if (!class_exists('Azinsanaat_Connection')) {
             }
 
             if ('azinsanaat-connection_page_azinsanaat-connection-products' === $hook) {
+                wp_enqueue_style(
+                    'azinsanaat-products-page',
+                    plugin_dir_url(__FILE__) . 'assets/css/products-page.css',
+                    [],
+                    '1.0.0'
+                );
+
                 wp_enqueue_script(
                     'azinsanaat-products-page',
                     plugin_dir_url(__FILE__) . 'assets/js/products-page.js',
@@ -934,7 +941,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             $available_import_sections = self::get_available_import_sections();
 
             ?>
-            <div class="wrap">
+            <div class="wrap azinsanaat-products-page">
                 <h1><?php esc_html_e('محصولات وب‌سرویس آذین صنعت', 'azinsanaat-connection'); ?></h1>
                 <p class="description"><?php echo esc_html(sprintf(__('اتصال فعال: %s', 'azinsanaat-connection'), $selected_connection_label)); ?></p>
                 <?php if ($bulk_creation_url) : ?>
@@ -991,15 +998,20 @@ if (!class_exists('Azinsanaat_Connection')) {
                 </form>
                 <?php if (!$error_message) : ?>
                     <div class="azinsanaat-products-search">
-                        <label for="azinsanaat-products-search" class="screen-reader-text"><?php esc_html_e('جستجو در نتایج فعلی', 'azinsanaat-connection'); ?></label>
-                        <input
-                            type="search"
-                            id="azinsanaat-products-search"
-                            class="azinsanaat-products-search-input"
-                            placeholder="<?php esc_attr_e('جستجو در محصولات نمایش داده شده...', 'azinsanaat-connection'); ?>"
-                            autocomplete="off"
-                        >
-                        <p class="description"><?php esc_html_e('این جستجو فقط روی نتایج لیست شده در جدول زیر اعمال می‌شود.', 'azinsanaat-connection'); ?></p>
+                        <div class="azinsanaat-products-search-field">
+                            <label for="azinsanaat-products-search" class="screen-reader-text"><?php esc_html_e('جستجو در نتایج فعلی', 'azinsanaat-connection'); ?></label>
+                            <input
+                                type="search"
+                                id="azinsanaat-products-search"
+                                class="azinsanaat-products-search-input"
+                                placeholder="<?php esc_attr_e('جستجو در محصولات نمایش داده شده...', 'azinsanaat-connection'); ?>"
+                                autocomplete="off"
+                            >
+                            <button type="button" class="button button-secondary azinsanaat-products-search-button">
+                                <?php esc_html_e('جستجو', 'azinsanaat-connection'); ?>
+                            </button>
+                        </div>
+                        <p class="description"><?php esc_html_e('برای اعمال جستجو عبارت مورد نظر را وارد کرده و دکمه جستجو را بزنید (یا کلید اینتر را فشار دهید).', 'azinsanaat-connection'); ?></p>
                         <p class="description azinsanaat-products-search-empty" style="display:none;">
                             <?php esc_html_e('هیچ محصولی با عبارت جستجو شده در نتایج فعلی یافت نشد.', 'azinsanaat-connection'); ?>
                         </p>
@@ -1008,16 +1020,6 @@ if (!class_exists('Azinsanaat_Connection')) {
                 <?php if (!$error_message && empty($products)) : ?>
                     <p><?php esc_html_e('هیچ محصولی یافت نشد.', 'azinsanaat-connection'); ?></p>
                 <?php elseif (!$error_message) : ?>
-                    <style>
-                        .azinsanaat-product-variations-table {
-                            margin-top: 10px;
-                        }
-
-                        .azinsanaat-product-variations-table th,
-                        .azinsanaat-product-variations-table td {
-                            font-size: 12px;
-                        }
-                    </style>
                     <table class="widefat striped azinsanaat-products-table">
                         <thead>
                         <tr>
