@@ -838,6 +838,49 @@ if (!class_exists('Azinsanaat_Connection')) {
             $connected_products_count_by_connection = [];
             $product_variation_details = [];
 
+            $connected_posts = get_posts([
+                'post_type'      => 'product',
+                'post_status'    => ['publish', 'pending', 'draft', 'private'],
+                'posts_per_page' => -1,
+                'fields'         => 'ids',
+                'meta_query'     => [
+                    [
+                        'key'     => self::META_REMOTE_ID,
+                        'compare' => 'EXISTS',
+                    ],
+                ],
+            ]);
+
+            foreach ($connected_posts as $connected_post_id) {
+                $remote_id = (int) get_post_meta($connected_post_id, self::META_REMOTE_ID, true);
+                $connection_id = get_post_meta($connected_post_id, self::META_REMOTE_CONNECTION, true);
+                $connection_id = is_string($connection_id) ? sanitize_key($connection_id) : '';
+
+                if ($remote_id) {
+                    $key = $connection_id ? $connection_id . '|' . $remote_id : '|' . $remote_id;
+                    $connected_remote_ids[$key] = $connected_post_id;
+                    if ($connection_id !== '') {
+                        if (!isset($connected_products_count_by_connection[$connection_id])) {
+                            $connected_products_count_by_connection[$connection_id] = 0;
+                        }
+                        $connected_products_count_by_connection[$connection_id]++;
+                    }
+                }
+            }
+
+            if (!empty($products)) {
+                $products = array_values(array_filter($products, function ($product) use ($selected_connection_id, $connected_remote_ids) {
+                    $remote_product_id = isset($product['id']) ? (int) $product['id'] : 0;
+                    if (!$remote_product_id) {
+                        return true;
+                    }
+
+                    $connection_lookup_key = $selected_connection_id . '|' . $remote_product_id;
+
+                    return !isset($connected_remote_ids[$connection_lookup_key]);
+                }));
+            }
+
             if (!$error_message && !empty($products)) {
                 foreach ($products as $product_data) {
                     $remote_product_id = isset($product_data['id']) ? (int) $product_data['id'] : 0;
@@ -874,36 +917,6 @@ if (!class_exists('Azinsanaat_Connection')) {
                         'error'      => '',
                         'variations' => $formatted_variations,
                     ];
-                }
-            }
-
-            $connected_posts = get_posts([
-                'post_type'      => 'product',
-                'post_status'    => ['publish', 'pending', 'draft', 'private'],
-                'posts_per_page' => -1,
-                'fields'         => 'ids',
-                'meta_query'     => [
-                    [
-                        'key'     => self::META_REMOTE_ID,
-                        'compare' => 'EXISTS',
-                    ],
-                ],
-            ]);
-
-            foreach ($connected_posts as $connected_post_id) {
-                $remote_id = (int) get_post_meta($connected_post_id, self::META_REMOTE_ID, true);
-                $connection_id = get_post_meta($connected_post_id, self::META_REMOTE_CONNECTION, true);
-                $connection_id = is_string($connection_id) ? sanitize_key($connection_id) : '';
-
-                if ($remote_id) {
-                    $key = $connection_id ? $connection_id . '|' . $remote_id : '|' . $remote_id;
-                    $connected_remote_ids[$key] = $connected_post_id;
-                    if ($connection_id !== '') {
-                        if (!isset($connected_products_count_by_connection[$connection_id])) {
-                            $connected_products_count_by_connection[$connection_id] = 0;
-                        }
-                        $connected_products_count_by_connection[$connection_id]++;
-                    }
                 }
             }
 
