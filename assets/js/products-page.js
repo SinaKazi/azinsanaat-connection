@@ -43,31 +43,44 @@
             return;
         }
 
-        var $rows = $table.find('tbody tr');
-        if (!$rows.length) {
+        var $productRows = $table.find('tbody > tr').not('.azinsanaat-product-variations-row');
+        if (!$productRows.length) {
             return;
         }
 
         var $emptyState = $('.azinsanaat-products-search-empty');
 
-        $rows.each(function () {
+        $productRows.each(function () {
             var $row = $(this);
-            $row.data('azinsanaatSearchText', normalizeSearchText($row.text()));
+            var curatedText = $row.data('searchText');
+
+            if (typeof curatedText === 'undefined') {
+                curatedText = $row.text();
+            }
+
+            $row.data('azinsanaatSearchText', normalizeSearchText(curatedText));
         });
 
         function applySearch(query) {
             var visibleCount = 0;
 
-            $rows.each(function () {
+            $productRows.each(function () {
                 var $row = $(this);
+                var $variationsRow = $row.next('.azinsanaat-product-variations-row');
                 var rowText = $row.data('azinsanaatSearchText') || '';
                 var matches = !query || rowText.indexOf(query) !== -1;
 
                 if (matches) {
                     $row.show();
+                    if ($variationsRow.length) {
+                        $variationsRow.show();
+                    }
                     visibleCount++;
                 } else {
                     $row.hide();
+                    if ($variationsRow.length) {
+                        $variationsRow.hide();
+                    }
                 }
             });
 
