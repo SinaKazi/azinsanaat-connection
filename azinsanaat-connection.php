@@ -1562,11 +1562,39 @@ if (!class_exists('Azinsanaat_Connection')) {
                 update_post_meta($post_id, '_sku', sanitize_text_field($sku));
             }
 
-            if (isset($data['regular_price'])) {
-                update_post_meta($post_id, '_regular_price', wc_clean($data['regular_price']));
-                update_post_meta($post_id, '_price', wc_clean($data['regular_price']));
-            } elseif (isset($data['price'])) {
-                update_post_meta($post_id, '_price', wc_clean($data['price']));
+            $regular_price = isset($data['regular_price']) && $data['regular_price'] !== ''
+                ? wc_clean($data['regular_price'])
+                : null;
+            $sale_price = isset($data['sale_price']) && $data['sale_price'] !== ''
+                ? wc_clean($data['sale_price'])
+                : null;
+            $active_price = null;
+
+            if ($regular_price !== null) {
+                update_post_meta($post_id, '_regular_price', $regular_price);
+            } else {
+                delete_post_meta($post_id, '_regular_price');
+            }
+
+            if ($sale_price !== null) {
+                update_post_meta($post_id, '_sale_price', $sale_price);
+                $active_price = $sale_price;
+            } else {
+                delete_post_meta($post_id, '_sale_price');
+            }
+
+            if ($active_price === null && $regular_price !== null) {
+                $active_price = $regular_price;
+            }
+
+            if ($active_price === null && isset($data['price']) && $data['price'] !== '') {
+                $active_price = wc_clean($data['price']);
+            }
+
+            if ($active_price !== null) {
+                update_post_meta($post_id, '_price', $active_price);
+            } else {
+                delete_post_meta($post_id, '_price');
             }
 
             if (isset($data['stock_status'])) {
@@ -2410,14 +2438,39 @@ if (!class_exists('Azinsanaat_Connection')) {
             $product_type = $data['type'] ?? '';
 
             if ($product_type !== 'variable') {
-                if (isset($data['regular_price']) && $data['regular_price'] !== '') {
-                    $regular_price = call_user_func($clean_callback, $data['regular_price']);
+                $regular_price = isset($data['regular_price']) && $data['regular_price'] !== ''
+                    ? call_user_func($clean_callback, $data['regular_price'])
+                    : null;
+                $sale_price = isset($data['sale_price']) && $data['sale_price'] !== ''
+                    ? call_user_func($clean_callback, $data['sale_price'])
+                    : null;
+                $active_price = null;
+
+                if ($regular_price !== null) {
                     update_post_meta($product_id, '_regular_price', $regular_price);
-                    update_post_meta($product_id, '_price', $regular_price);
-                } elseif (isset($data['price']) && $data['price'] !== '') {
-                    $price = call_user_func($clean_callback, $data['price']);
-                    update_post_meta($product_id, '_price', $price);
+                } else {
                     delete_post_meta($product_id, '_regular_price');
+                }
+
+                if ($sale_price !== null) {
+                    update_post_meta($product_id, '_sale_price', $sale_price);
+                    $active_price = $sale_price;
+                } else {
+                    delete_post_meta($product_id, '_sale_price');
+                }
+
+                if ($active_price === null && $regular_price !== null) {
+                    $active_price = $regular_price;
+                }
+
+                if ($active_price === null && isset($data['price']) && $data['price'] !== '') {
+                    $active_price = call_user_func($clean_callback, $data['price']);
+                }
+
+                if ($active_price !== null) {
+                    update_post_meta($product_id, '_price', $active_price);
+                } else {
+                    delete_post_meta($product_id, '_price');
                 }
             }
 
