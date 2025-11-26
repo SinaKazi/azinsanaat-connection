@@ -41,6 +41,9 @@
         var importSections = [];
         var hasImportOptions = false;
         var $row = $form.closest('tr');
+        var variationAttributes = {};
+        var hasVariationRows = false;
+        var missingColor = false;
 
         if ($row.length) {
             var $categorySelect = $row.find('.azinsanaat-site-category-select');
@@ -58,6 +61,30 @@
                     }
                 });
             }
+
+            var $variationsRow = $row.next('.azinsanaat-product-variations-row');
+            if ($variationsRow.length) {
+                hasVariationRows = true;
+                $variationsRow.find('.azinsanaat-product-variations-table tbody tr').each(function () {
+                    var $variationRow = $(this);
+                    var remoteVariationId = parseInt($variationRow.data('remoteVariationId'), 10) || 0;
+                    if (!remoteVariationId) {
+                        return;
+                    }
+
+                    var colorValue = $variationRow.find('.azinsanaat-variation-color').val() || '';
+                    var warrantyValue = $variationRow.find('.azinsanaat-variation-warranty').val() || '';
+
+                    variationAttributes[remoteVariationId] = {
+                        color: colorValue,
+                        warranty: warrantyValue
+                    };
+
+                    if (!colorValue) {
+                        missingColor = true;
+                    }
+                });
+            }
         }
         if (!productId) {
             return;
@@ -68,6 +95,11 @@
         var $feedback = $form.find('.azinsanaat-import-feedback');
         var nonce = $form.find('input[name="_wpnonce"]').val();
         var success = false;
+
+        if (hasVariationRows && missingColor) {
+            renderMessage($feedback, 'error', settings.messages && settings.messages.missingColor ? settings.messages.missingColor : '');
+            return;
+        }
 
         $feedback.removeClass('notice notice-success notice-error').empty();
         $button.prop('disabled', true).attr('aria-disabled', 'true');
@@ -86,6 +118,10 @@
 
         if (hasImportOptions) {
             requestData.import_sections_submitted = 1;
+        }
+
+        if (hasVariationRows) {
+            requestData.variation_attributes = variationAttributes;
         }
 
         $.ajax({
