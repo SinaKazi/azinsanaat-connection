@@ -610,7 +610,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                     'azinsanaat-products-page',
                     plugin_dir_url(__FILE__) . 'assets/js/products-page.js',
                     ['jquery'],
-                    '1.2.0',
+                    '1.3.0',
                     true
                 );
 
@@ -623,6 +623,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                             'genericError' => __('خطا در پردازش درخواست. لطفاً دوباره تلاش کنید.', 'azinsanaat-connection'),
                             'networkError' => __('خطایی در ارتباط با سرور رخ داد.', 'azinsanaat-connection'),
                             'editLinkLabel'=> __('مشاهده پیش‌نویس', 'azinsanaat-connection'),
+                            'missingColor'=> __('انتخاب رنگ برای تمامی متغیرها الزامی است.', 'azinsanaat-connection'),
                         ],
                     ]
                 );
@@ -933,6 +934,9 @@ if (!class_exists('Azinsanaat_Connection')) {
 
             $notice = self::get_transient_message('azinsanaat_connection_import_notice');
 
+            $color_terms = self::get_attribute_terms('pa_color');
+            $warranty_terms = self::get_attribute_terms('pa_warranty');
+
             $site_categories = get_terms([
                 'taxonomy'   => 'product_cat',
                 'hide_empty' => false,
@@ -1157,7 +1161,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                                 $variation_info = $product_variation_details[$remote_product_id];
                                 ?>
                                 <tr class="azinsanaat-product-variations-row">
-                                    <td colspan="9">
+                                    <td colspan="10">
                                         <?php if (!empty($variation_info['error'])) : ?>
                                             <p class="description"><?php echo esc_html($variation_info['error']); ?></p>
                                         <?php elseif (!empty($variation_info['variations'])) : ?>
@@ -1166,6 +1170,8 @@ if (!class_exists('Azinsanaat_Connection')) {
                                                 <tr>
                                                     <th><?php esc_html_e('شناسه متغیر', 'azinsanaat-connection'); ?></th>
                                                     <th><?php esc_html_e('ویژگی‌ها', 'azinsanaat-connection'); ?></th>
+                                                    <th><?php esc_html_e('رنگ', 'azinsanaat-connection'); ?></th>
+                                                    <th><?php esc_html_e('گارانتی', 'azinsanaat-connection'); ?></th>
                                                     <th><?php esc_html_e('قیمت', 'azinsanaat-connection'); ?></th>
                                                     <th><?php esc_html_e('قیمت حراج', 'azinsanaat-connection'); ?></th>
                                                     <th><?php esc_html_e('وضعیت موجودی', 'azinsanaat-connection'); ?></th>
@@ -1173,10 +1179,43 @@ if (!class_exists('Azinsanaat_Connection')) {
                                                 </tr>
                                                 </thead>
                                                 <tbody>
-                                                <?php foreach ($variation_info['variations'] as $variation) : ?>
-                                                    <tr>
-                                                        <td><?php echo esc_html($variation['id'] ?: '—'); ?></td>
+                                                <?php foreach ($variation_info['variations'] as $variation) :
+                                                    $remote_variation_id = $variation['id'] ?: 0;
+                                                    $color_select_id = 'azinsanaat-variation-color-' . $remote_variation_id;
+                                                    $warranty_select_id = 'azinsanaat-variation-warranty-' . $remote_variation_id;
+                                                    ?>
+                                                    <tr data-remote-variation-id="<?php echo esc_attr($remote_variation_id); ?>">
+                                                        <td><?php echo esc_html($remote_variation_id ?: '—'); ?></td>
                                                         <td><?php echo esc_html($variation['attributes'] ?: '—'); ?></td>
+                                                        <td>
+                                                            <label class="screen-reader-text" for="<?php echo esc_attr($color_select_id); ?>"><?php esc_html_e('انتخاب رنگ', 'azinsanaat-connection'); ?></label>
+                                                            <select
+                                                                id="<?php echo esc_attr($color_select_id); ?>"
+                                                                name="variation_attributes[<?php echo esc_attr($remote_variation_id); ?>][color]"
+                                                                class="azinsanaat-variation-color"
+                                                                form="<?php echo esc_attr($form_id); ?>"
+                                                                required
+                                                            >
+                                                                <option value=""><?php esc_html_e('انتخاب رنگ', 'azinsanaat-connection'); ?></option>
+                                                                <?php foreach ($color_terms as $term) : ?>
+                                                                    <option value="<?php echo esc_attr($term->term_id); ?>"><?php echo esc_html($term->name); ?></option>
+                                                                <?php endforeach; ?>
+                                                            </select>
+                                                        </td>
+                                                        <td>
+                                                            <label class="screen-reader-text" for="<?php echo esc_attr($warranty_select_id); ?>"><?php esc_html_e('انتخاب گارانتی', 'azinsanaat-connection'); ?></label>
+                                                            <select
+                                                                id="<?php echo esc_attr($warranty_select_id); ?>"
+                                                                name="variation_attributes[<?php echo esc_attr($remote_variation_id); ?>][warranty]"
+                                                                class="azinsanaat-variation-warranty"
+                                                                form="<?php echo esc_attr($form_id); ?>"
+                                                            >
+                                                                <option value=""><?php esc_html_e('بدون گارانتی', 'azinsanaat-connection'); ?></option>
+                                                                <?php foreach ($warranty_terms as $term) : ?>
+                                                                    <option value="<?php echo esc_attr($term->term_id); ?>"><?php echo esc_html($term->name); ?></option>
+                                                                <?php endforeach; ?>
+                                                            </select>
+                                                        </td>
                                                         <td><?php echo esc_html($variation['price'] !== '' ? $variation['price'] : ($variation['regular_price'] !== '' ? $variation['regular_price'] : '—')); ?></td>
                                                         <td><?php echo esc_html($variation['sale_price'] !== '' ? $variation['sale_price'] : '—'); ?></td>
                                                         <td><?php echo esc_html($variation['stock_status']); ?></td>
@@ -1385,11 +1424,15 @@ if (!class_exists('Azinsanaat_Connection')) {
             }
             $import_sections = self::prepare_import_sections($raw_import_sections, $sections_submitted);
 
+            $variation_attributes = isset($_POST['variation_attributes']) ? wp_unslash($_POST['variation_attributes']) : [];
+            $variation_attributes = self::sanitize_variation_attributes($variation_attributes);
+
             $result = self::import_remote_product(
                 $product_id,
                 $connection_id ?: null,
                 $site_category_id ?: null,
-                $import_sections
+                $import_sections,
+                $variation_attributes
             );
 
             if (is_wp_error($result)) {
@@ -1437,8 +1480,11 @@ if (!class_exists('Azinsanaat_Connection')) {
             if ($sections_submitted) {
                 $raw_import_sections = isset($_POST['import_sections']) ? wp_unslash((array) $_POST['import_sections']) : [];
             }
+            $variation_attributes = isset($_POST['variation_attributes']) ? wp_unslash($_POST['variation_attributes']) : [];
+            $variation_attributes = self::sanitize_variation_attributes($variation_attributes);
+
             $import_sections = self::prepare_import_sections($raw_import_sections, $sections_submitted);
-            $result = self::import_remote_product($product_id, $connection_id ?: null, $site_category_id ?: null, $import_sections);
+            $result = self::import_remote_product($product_id, $connection_id ?: null, $site_category_id ?: null, $import_sections, $variation_attributes);
             if (is_wp_error($result)) {
                 wp_send_json_error([
                     'message' => $result->get_error_message(),
@@ -1459,7 +1505,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             wp_send_json_success($response);
         }
 
-        protected static function import_remote_product(int $product_id, ?string $connection_id = null, ?int $site_category_id = null, ?array $import_sections = null)
+        protected static function import_remote_product(int $product_id, ?string $connection_id = null, ?int $site_category_id = null, ?array $import_sections = null, array $variation_attributes = [])
         {
             if (!class_exists('WooCommerce')) {
                 return new WP_Error('azinsanaat_wc_inactive', __('افزونه ووکامرس فعال نیست.', 'azinsanaat-connection'));
@@ -1492,7 +1538,48 @@ if (!class_exists('Azinsanaat_Connection')) {
             }
 
             $normalized_sections = self::normalize_import_sections($import_sections);
-            $result = self::create_pending_product($decoded, $site_category_id, $connection_id ?: null, $normalized_sections);
+
+            $remote_variations = [];
+            $is_variable_product = ($decoded['type'] ?? '') === 'variable' || !empty($decoded['variations']);
+
+            if ($is_variable_product) {
+                if (empty($variation_attributes)) {
+                    return new WP_Error('azinsanaat_missing_variation_attributes', __('انتخاب رنگ برای تمامی متغیرها الزامی است.', 'azinsanaat-connection'));
+                }
+
+                $remote_variations = self::fetch_remote_variations($client, $product_id);
+                if (is_wp_error($remote_variations)) {
+                    return $remote_variations;
+                }
+
+                $remote_variations_map = [];
+                foreach ($remote_variations as $variation) {
+                    $remote_id = isset($variation['id']) ? (int) $variation['id'] : 0;
+                    if ($remote_id) {
+                        $remote_variations_map[$remote_id] = $variation;
+                    }
+                }
+
+                foreach ($remote_variations_map as $remote_variation_id => $variation) {
+                    if (!isset($variation_attributes[$remote_variation_id]) || empty($variation_attributes[$remote_variation_id]['color'])) {
+                        return new WP_Error('azinsanaat_missing_color', __('انتخاب رنگ برای تمامی متغیرها الزامی است.', 'azinsanaat-connection'));
+                    }
+                }
+
+                $variation_attributes = array_intersect_key($variation_attributes, $remote_variations_map);
+                if (empty($variation_attributes)) {
+                    return new WP_Error('azinsanaat_missing_variation_attributes', __('هیچ متغیری برای ساخت محصول انتخاب نشده است.', 'azinsanaat-connection'));
+                }
+            }
+
+            $result = self::create_pending_product(
+                $decoded,
+                $site_category_id,
+                $connection_id ?: null,
+                $normalized_sections,
+                $variation_attributes,
+                $remote_variations
+            );
             if (is_wp_error($result)) {
                 return $result;
             }
@@ -1506,7 +1593,7 @@ if (!class_exists('Azinsanaat_Connection')) {
         /**
          * Creates a pending WooCommerce product locally.
          */
-        protected static function create_pending_product(array $data, ?int $site_category_id = null, ?string $connection_id = null, array $import_sections = [])
+        protected static function create_pending_product(array $data, ?int $site_category_id = null, ?string $connection_id = null, array $import_sections = [], array $variation_attributes = [], array $remote_variations = [])
         {
             $import_sections = self::normalize_import_sections($import_sections);
             $should_import_title = in_array('title', $import_sections, true);
@@ -1670,7 +1757,155 @@ if (!class_exists('Azinsanaat_Connection')) {
                 }
             }
 
+            $is_variable_product = ($data['type'] ?? '') === 'variable' || !empty($remote_variations);
+
+            if ($is_variable_product) {
+                $variable_result = self::create_variable_product_structure(
+                    $post_id,
+                    $name,
+                    $connection_id,
+                    $variation_attributes,
+                    $remote_variations
+                );
+
+                if (is_wp_error($variable_result)) {
+                    return $variable_result;
+                }
+            }
+
             return $post_id;
+        }
+
+        protected static function create_variable_product_structure(int $post_id, string $product_name, ?string $connection_id, array $variation_attributes, array $remote_variations)
+        {
+            $color_taxonomy = 'pa_color';
+            $warranty_taxonomy = 'pa_warranty';
+
+            if (!taxonomy_exists($color_taxonomy)) {
+                return new WP_Error('azinsanaat_missing_color_attribute', __('ویژگی رنگ در ووکامرس یافت نشد.', 'azinsanaat-connection'));
+            }
+
+            $color_terms_map = [];
+            $warranty_terms_map = [];
+
+            $remote_variations_map = [];
+            foreach ($remote_variations as $variation) {
+                $remote_id = isset($variation['id']) ? (int) $variation['id'] : 0;
+                if ($remote_id) {
+                    $remote_variations_map[$remote_id] = $variation;
+                }
+            }
+
+            foreach ($variation_attributes as $remote_id => $attributes) {
+                if (empty($attributes['color'])) {
+                    return new WP_Error('azinsanaat_missing_color', __('انتخاب رنگ برای تمامی متغیرها الزامی است.', 'azinsanaat-connection'));
+                }
+
+                $color_term = get_term($attributes['color'], $color_taxonomy);
+                if (!$color_term || is_wp_error($color_term)) {
+                    return new WP_Error('azinsanaat_invalid_color_term', __('رنگ انتخاب‌شده معتبر نیست.', 'azinsanaat-connection'));
+                }
+
+                $color_terms_map[$color_term->term_id] = $color_term;
+
+                if (!empty($attributes['warranty'])) {
+                    if (!taxonomy_exists($warranty_taxonomy)) {
+                        return new WP_Error('azinsanaat_missing_warranty_attribute', __('ویژگی گارانتی در ووکامرس یافت نشد.', 'azinsanaat-connection'));
+                    }
+
+                    $warranty_term = get_term($attributes['warranty'], $warranty_taxonomy);
+                    if (!$warranty_term || is_wp_error($warranty_term)) {
+                        return new WP_Error('azinsanaat_invalid_warranty_term', __('گارانتی انتخاب‌شده معتبر نیست.', 'azinsanaat-connection'));
+                    }
+
+                    $warranty_terms_map[$warranty_term->term_id] = $warranty_term;
+                }
+            }
+
+            if (empty($color_terms_map)) {
+                return new WP_Error('azinsanaat_missing_color', __('انتخاب رنگ برای تمامی متغیرها الزامی است.', 'azinsanaat-connection'));
+            }
+
+            wp_set_object_terms($post_id, array_keys($color_terms_map), $color_taxonomy);
+
+            if (!empty($warranty_terms_map)) {
+                wp_set_object_terms($post_id, array_keys($warranty_terms_map), $warranty_taxonomy);
+            }
+
+            wp_set_object_terms($post_id, 'variable', 'product_type');
+
+            $product_attributes = [
+                $color_taxonomy => [
+                    'name'         => $color_taxonomy,
+                    'is_visible'   => 1,
+                    'is_variation' => 1,
+                    'is_taxonomy'  => 1,
+                    'value'        => '',
+                ],
+            ];
+
+            if (!empty($warranty_terms_map)) {
+                $product_attributes[$warranty_taxonomy] = [
+                    'name'         => $warranty_taxonomy,
+                    'is_visible'   => 1,
+                    'is_variation' => 1,
+                    'is_taxonomy'  => 1,
+                    'value'        => '',
+                ];
+            }
+
+            update_post_meta($post_id, '_product_attributes', $product_attributes);
+
+            foreach ($variation_attributes as $remote_variation_id => $attributes) {
+                if (empty($attributes['color'])) {
+                    continue;
+                }
+
+                $color_term = $color_terms_map[$attributes['color']] ?? null;
+                $warranty_term = $attributes['warranty'] && isset($warranty_terms_map[$attributes['warranty']])
+                    ? $warranty_terms_map[$attributes['warranty']]
+                    : null;
+
+                $variation_post = [
+                    'post_title'   => $product_name ? $product_name . ' - ' . $color_term->name : '',
+                    'post_status'  => 'publish',
+                    'post_type'    => 'product_variation',
+                    'post_parent'  => $post_id,
+                    'post_content' => '',
+                ];
+
+                $variation_id = wp_insert_post($variation_post, true);
+                if (is_wp_error($variation_id) || !$variation_id) {
+                    return new WP_Error('azinsanaat_variation_creation_failed', __('امکان ایجاد متغیر جدید وجود ندارد.', 'azinsanaat-connection'));
+                }
+
+                update_post_meta($variation_id, 'attribute_' . $color_taxonomy, $color_term->slug);
+
+                if ($warranty_term) {
+                    update_post_meta($variation_id, 'attribute_' . $warranty_taxonomy, $warranty_term->slug);
+                }
+
+                if ($connection_id) {
+                    update_post_meta($variation_id, self::META_REMOTE_CONNECTION, sanitize_key($connection_id));
+                }
+
+                update_post_meta($variation_id, self::META_REMOTE_ID, $remote_variation_id);
+
+                $remote_data = $remote_variations_map[$remote_variation_id] ?? [];
+                if (!empty($remote_data)) {
+                    self::apply_simple_remote_data_to_variation($variation_id, $remote_data);
+
+                    if (!empty($remote_data['sku'])) {
+                        update_post_meta($variation_id, '_sku', sanitize_text_field($remote_data['sku']));
+                    }
+
+                    if (isset($remote_data['stock_status'])) {
+                        update_post_meta($variation_id, '_stock_status', sanitize_text_field($remote_data['stock_status']));
+                    }
+                }
+            }
+
+            return true;
         }
 
         protected static function get_available_import_sections(): array
@@ -1717,6 +1952,30 @@ if (!class_exists('Azinsanaat_Connection')) {
             return self::normalize_import_sections($sections);
         }
 
+        protected static function sanitize_variation_attributes($input): array
+        {
+            $output = [];
+
+            if (!is_array($input)) {
+                return $output;
+            }
+
+            foreach ($input as $remote_id => $attributes) {
+                $remote_id = absint($remote_id);
+
+                if (!$remote_id || !is_array($attributes)) {
+                    continue;
+                }
+
+                $output[$remote_id] = [
+                    'color'    => isset($attributes['color']) ? absint($attributes['color']) : 0,
+                    'warranty' => isset($attributes['warranty']) ? absint($attributes['warranty']) : 0,
+                ];
+            }
+
+            return $output;
+        }
+
         /**
          * Finds existing term IDs for the provided term data without creating new terms.
          */
@@ -1749,6 +2008,26 @@ if (!class_exists('Azinsanaat_Connection')) {
             }
 
             return array_values(array_unique($term_ids));
+        }
+
+        protected static function get_attribute_terms(string $taxonomy): array
+        {
+            if (!taxonomy_exists($taxonomy)) {
+                return [];
+            }
+
+            $terms = get_terms([
+                'taxonomy'   => $taxonomy,
+                'hide_empty' => false,
+                'orderby'    => 'name',
+                'order'      => 'ASC',
+            ]);
+
+            if (is_wp_error($terms) || !is_array($terms)) {
+                return [];
+            }
+
+            return $terms;
         }
 
         protected static function normalize_product_category_id(?int $term_id): int
