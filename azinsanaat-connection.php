@@ -210,6 +210,9 @@ if (!class_exists('Azinsanaat_Connection')) {
                         'consumer_key'    => $consumer_key,
                         'consumer_secret' => $consumer_secret,
                         'sync_interval'   => $connection_interval,
+                        'attribute_taxonomies' => self::sanitize_connection_attribute_taxonomies(
+                            $connection['attribute_taxonomies'] ?? null
+                        ),
                     ];
                 }
             }
@@ -227,6 +230,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                         'consumer_key'    => $legacy_key,
                         'consumer_secret' => $legacy_secret,
                         'sync_interval'   => $default_connection_interval,
+                        'attribute_taxonomies' => self::sanitize_connection_attribute_taxonomies(null),
                     ];
                 }
             }
@@ -270,6 +274,102 @@ if (!class_exists('Azinsanaat_Connection')) {
             ];
         }
 
+        protected static function get_attribute_taxonomy_choices(): array
+        {
+            if (!function_exists('wc_get_attribute_taxonomies')) {
+                return [];
+            }
+
+            $choices = [];
+            $taxonomies = wc_get_attribute_taxonomies();
+
+            if (empty($taxonomies)) {
+                return $choices;
+            }
+
+            foreach ($taxonomies as $taxonomy) {
+                $taxonomy_name = wc_attribute_taxonomy_name($taxonomy->attribute_name);
+                if (!taxonomy_exists($taxonomy_name)) {
+                    continue;
+                }
+
+                $choices[$taxonomy_name] = wc_attribute_label($taxonomy_name, null);
+            }
+
+            return $choices;
+        }
+
+        protected static function get_default_attribute_taxonomies(array $available): array
+        {
+            $preferred = ['pa_color', 'pa_warranty'];
+            $selected = [];
+
+            foreach ($preferred as $taxonomy) {
+                if (in_array($taxonomy, $available, true)) {
+                    $selected[] = $taxonomy;
+                }
+            }
+
+            foreach ($available as $taxonomy) {
+                if (!in_array($taxonomy, $selected, true)) {
+                    $selected[] = $taxonomy;
+                }
+
+                if (count($selected) >= 2) {
+                    break;
+                }
+            }
+
+            return array_slice($selected, 0, 2);
+        }
+
+        protected static function sanitize_connection_attribute_taxonomies($input): array
+        {
+            $choices = self::get_attribute_taxonomy_choices();
+            $available = array_keys($choices);
+
+            $default = self::get_default_attribute_taxonomies($available);
+
+            if (empty($available)) {
+                return [];
+            }
+
+            $sanitized = [];
+            if (is_array($input)) {
+                foreach ($input as $taxonomy) {
+                    $taxonomy = sanitize_key((string) $taxonomy);
+                    if ($taxonomy && in_array($taxonomy, $available, true) && !in_array($taxonomy, $sanitized, true)) {
+                        $sanitized[] = $taxonomy;
+                    }
+                }
+            }
+
+            if (empty($sanitized)) {
+                $sanitized = $default;
+            }
+
+            return array_slice($sanitized, 0, 2);
+        }
+
+        protected static function get_connection_attribute_taxonomies(?string $connection_id): array
+        {
+            $connection = self::get_connection_or_default($connection_id ?: null);
+            if (!$connection) {
+                return [];
+            }
+
+            $configured = isset($connection['attribute_taxonomies']) && is_array($connection['attribute_taxonomies'])
+                ? array_values(array_filter(array_map('sanitize_key', $connection['attribute_taxonomies'])))
+                : [];
+
+            if (!empty($configured)) {
+                return $configured;
+            }
+
+            $choices = self::get_attribute_taxonomy_choices();
+            return self::get_default_attribute_taxonomies(array_keys($choices));
+        }
+
         protected static function normalize_connection(array $connection, ?string $fallback_id = null, ?string $fallback_interval = null): ?array
         {
             $store_url = isset($connection['store_url']) ? esc_url_raw(trim((string) $connection['store_url'])) : '';
@@ -310,6 +410,9 @@ if (!class_exists('Azinsanaat_Connection')) {
                 'consumer_key'    => $consumer_key,
                 'consumer_secret' => $consumer_secret,
                 'sync_interval'   => $interval,
+                'attribute_taxonomies' => self::sanitize_connection_attribute_taxonomies(
+                    $connection['attribute_taxonomies'] ?? null
+                ),
             ];
         }
 
@@ -426,6 +529,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             $has_connections = !empty($connections);
             $option_key = self::OPTION_KEY;
             $sync_intervals = self::get_sync_intervals();
+            $attribute_taxonomy_choices = self::get_attribute_taxonomy_choices();
             ?>
             <div class="wrap">
                 <h1><?php esc_html_e('تنظیمات اتصال آذین صنعت', 'azinsanaat-connection'); ?></h1>
@@ -474,6 +578,34 @@ if (!class_exists('Azinsanaat_Connection')) {
                                         </select>
                                         <span class="description"><?php esc_html_e('زمان‌بندی اجرای خودکار به‌روزرسانی قیمت و موجودی محصولات متصل.', 'azinsanaat-connection'); ?></span>
                                     </p>
+                                    <div class="azinsanaat-connection-attributes">
+                                        <p>
+                                            <label for="azinsanaat-connection-attr-primary-<?php echo $connection_id; ?>"><?php esc_html_e('ویژگی اصلی متغیرها', 'azinsanaat-connection'); ?></label>
+                                            <select
+                                                id="azinsanaat-connection-attr-primary-<?php echo $connection_id; ?>"
+                                                name="<?php echo esc_attr($option_key); ?>[connections][<?php echo esc_attr($connection['id']); ?>][attribute_taxonomies][]"
+                                            >
+                                                <?php foreach ($attribute_taxonomy_choices as $taxonomy_key => $taxonomy_label) : ?>
+                                                    <option value="<?php echo esc_attr($taxonomy_key); ?>" <?php selected($connection['attribute_taxonomies'][0] ?? '', $taxonomy_key); ?>><?php echo esc_html($taxonomy_label); ?></option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </p>
+                                        <p>
+                                            <label for="azinsanaat-connection-attr-secondary-<?php echo $connection_id; ?>"><?php esc_html_e('ویژگی دوم متغیرها', 'azinsanaat-connection'); ?></label>
+                                            <select
+                                                id="azinsanaat-connection-attr-secondary-<?php echo $connection_id; ?>"
+                                                name="<?php echo esc_attr($option_key); ?>[connections][<?php echo esc_attr($connection['id']); ?>][attribute_taxonomies][]"
+                                            >
+                                                <?php foreach ($attribute_taxonomy_choices as $taxonomy_key => $taxonomy_label) : ?>
+                                                    <option value="<?php echo esc_attr($taxonomy_key); ?>" <?php selected($connection['attribute_taxonomies'][1] ?? '', $taxonomy_key); ?>><?php echo esc_html($taxonomy_label); ?></option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                            <span class="description"><?php esc_html_e('این دو ویژگی برای ساخت متغیرهای محصولات وارداتی مورد استفاده قرار می‌گیرند.', 'azinsanaat-connection'); ?></span>
+                                        </p>
+                                        <?php if (empty($attribute_taxonomy_choices)) : ?>
+                                            <p class="description"><?php esc_html_e('هیچ ویژگی محصولی در ووکامرس تعریف نشده است. ابتدا ویژگی‌های موردنظر را ایجاد کنید.', 'azinsanaat-connection'); ?></p>
+                                        <?php endif; ?>
+                                    </div>
                                     <p class="azinsanaat-connection-actions">
                                         <button type="button" class="button-link-delete azinsanaat-remove-connection"><?php esc_html_e('حذف این اتصال', 'azinsanaat-connection'); ?></button>
                                     </p>
@@ -533,6 +665,34 @@ if (!class_exists('Azinsanaat_Connection')) {
                             </select>
                             <span class="description"><?php esc_html_e('زمان‌بندی اجرای خودکار به‌روزرسانی قیمت و موجودی محصولات متصل.', 'azinsanaat-connection'); ?></span>
                         </p>
+                        <div class="azinsanaat-connection-attributes">
+                            <p>
+                                <label for="azinsanaat-connection-attr-primary-__key__"><?php esc_html_e('ویژگی اصلی متغیرها', 'azinsanaat-connection'); ?></label>
+                                <select
+                                    id="azinsanaat-connection-attr-primary-__key__"
+                                    name="<?php echo esc_attr($option_key); ?>[connections][__key__][attribute_taxonomies][]"
+                                >
+                                    <?php foreach ($attribute_taxonomy_choices as $taxonomy_key => $taxonomy_label) : ?>
+                                        <option value="<?php echo esc_attr($taxonomy_key); ?>"><?php echo esc_html($taxonomy_label); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </p>
+                            <p>
+                                <label for="azinsanaat-connection-attr-secondary-__key__"><?php esc_html_e('ویژگی دوم متغیرها', 'azinsanaat-connection'); ?></label>
+                                <select
+                                    id="azinsanaat-connection-attr-secondary-__key__"
+                                    name="<?php echo esc_attr($option_key); ?>[connections][__key__][attribute_taxonomies][]"
+                                >
+                                    <?php foreach ($attribute_taxonomy_choices as $taxonomy_key => $taxonomy_label) : ?>
+                                        <option value="<?php echo esc_attr($taxonomy_key); ?>"><?php echo esc_html($taxonomy_label); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <span class="description"><?php esc_html_e('این دو ویژگی برای ساخت متغیرهای محصولات وارداتی مورد استفاده قرار می‌گیرند.', 'azinsanaat-connection'); ?></span>
+                            </p>
+                            <?php if (empty($attribute_taxonomy_choices)) : ?>
+                                <p class="description"><?php esc_html_e('هیچ ویژگی محصولی در ووکامرس تعریف نشده است. ابتدا ویژگی‌های موردنظر را ایجاد کنید.', 'azinsanaat-connection'); ?></p>
+                            <?php endif; ?>
+                        </div>
                         <p class="azinsanaat-connection-actions">
                             <button type="button" class="button-link-delete azinsanaat-remove-connection"><?php esc_html_e('حذف این اتصال', 'azinsanaat-connection'); ?></button>
                         </p>
@@ -623,7 +783,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                             'genericError' => __('خطا در پردازش درخواست. لطفاً دوباره تلاش کنید.', 'azinsanaat-connection'),
                             'networkError' => __('خطایی در ارتباط با سرور رخ داد.', 'azinsanaat-connection'),
                             'editLinkLabel'=> __('مشاهده پیش‌نویس', 'azinsanaat-connection'),
-                            'missingColor'=> __('انتخاب رنگ برای تمامی متغیرها الزامی است.', 'azinsanaat-connection'),
+                            'missingAttributes'=> __('انتخاب ویژگی‌های الزامی برای تمامی متغیرها ضروری است.', 'azinsanaat-connection'),
                         ],
                     ]
                 );
@@ -880,6 +1040,8 @@ if (!class_exists('Azinsanaat_Connection')) {
                 }
             }
 
+            $selected_connection_connected_count = $connected_products_count_by_connection[$selected_connection_id] ?? 0;
+
             if (!empty($products)) {
                 $products = array_values(array_filter($products, function ($product) use ($selected_connection_id, $connected_remote_ids) {
                     $remote_product_id = isset($product['id']) ? (int) $product['id'] : 0;
@@ -891,6 +1053,18 @@ if (!class_exists('Azinsanaat_Connection')) {
 
                     return !isset($connected_remote_ids[$connection_lookup_key]);
                 }));
+            }
+
+            if (!$error_message) {
+                $available_remote_products_count = $total_remote_products_count > 0
+                    ? max(0, $total_remote_products_count - $selected_connection_connected_count)
+                    : count($products) + max(0, ($current_page - 1) * $per_page);
+
+                $total_pages = max(1, (int) ceil($available_remote_products_count / $per_page));
+
+                if ($current_page > $total_pages) {
+                    $current_page = $total_pages;
+                }
             }
 
             if (!$error_message && !empty($products)) {
@@ -934,8 +1108,35 @@ if (!class_exists('Azinsanaat_Connection')) {
 
             $notice = self::get_transient_message('azinsanaat_connection_import_notice');
 
-            $color_terms = self::get_attribute_terms('pa_color');
-            $warranty_terms = self::get_attribute_terms('pa_warranty');
+            $attribute_taxonomies = self::get_connection_attribute_taxonomies($selected_connection_id);
+            $attribute_terms = [];
+            $attribute_labels = [];
+            $attribute_config_error = '';
+
+            if (empty($attribute_taxonomies)) {
+                $attribute_config_error = __('ویژگی‌های لازم برای ساخت متغیرها برای این اتصال تنظیم نشده است.', 'azinsanaat-connection');
+            } else {
+                foreach ($attribute_taxonomies as $taxonomy) {
+                    if (!taxonomy_exists($taxonomy)) {
+                        $attribute_config_error = __('ویژگی انتخاب شده در ووکامرس وجود ندارد.', 'azinsanaat-connection');
+                        break;
+                    }
+
+                    $terms = self::get_attribute_terms($taxonomy);
+                    $label = function_exists('wc_attribute_label') ? wc_attribute_label($taxonomy, null) : $taxonomy;
+
+                    if (empty($terms)) {
+                        $attribute_config_error = sprintf(
+                            __('هیچ مقدار فعالی برای ویژگی %s یافت نشد.', 'azinsanaat-connection'),
+                            $label
+                        );
+                        break;
+                    }
+
+                    $attribute_terms[$taxonomy] = $terms;
+                    $attribute_labels[$taxonomy] = $label;
+                }
+            }
 
             $site_categories = get_terms([
                 'taxonomy'   => 'product_cat',
@@ -968,7 +1169,6 @@ if (!class_exists('Azinsanaat_Connection')) {
                     <div class="notice notice-error"><p><?php echo esc_html($error_message); ?></p></div>
                 <?php endif; ?>
                 <?php
-                $selected_connection_connected_count = $connected_products_count_by_connection[$selected_connection_id] ?? 0;
                 ?>
                 <div class="notice notice-info azinsanaat-products-summary">
                     <p>
@@ -1164,14 +1364,17 @@ if (!class_exists('Azinsanaat_Connection')) {
                                     <td colspan="10">
                                         <?php if (!empty($variation_info['error'])) : ?>
                                             <p class="description"><?php echo esc_html($variation_info['error']); ?></p>
+                                        <?php elseif ($attribute_config_error) : ?>
+                                            <p class="description"><?php echo esc_html($attribute_config_error); ?></p>
                                         <?php elseif (!empty($variation_info['variations'])) : ?>
                                             <table class="widefat striped azinsanaat-product-variations-table">
                                                 <thead>
                                                 <tr>
                                                     <th><?php esc_html_e('شناسه متغیر', 'azinsanaat-connection'); ?></th>
                                                     <th><?php esc_html_e('ویژگی‌ها', 'azinsanaat-connection'); ?></th>
-                                                    <th><?php esc_html_e('رنگ', 'azinsanaat-connection'); ?></th>
-                                                    <th><?php esc_html_e('گارانتی', 'azinsanaat-connection'); ?></th>
+                                                    <?php foreach ($attribute_taxonomies as $taxonomy) : ?>
+                                                        <th><?php echo esc_html($attribute_labels[$taxonomy] ?? $taxonomy); ?></th>
+                                                    <?php endforeach; ?>
                                                     <th><?php esc_html_e('قیمت', 'azinsanaat-connection'); ?></th>
                                                     <th><?php esc_html_e('قیمت حراج', 'azinsanaat-connection'); ?></th>
                                                     <th><?php esc_html_e('وضعیت موجودی', 'azinsanaat-connection'); ?></th>
@@ -1181,46 +1384,39 @@ if (!class_exists('Azinsanaat_Connection')) {
                                                 <tbody>
                                                 <?php foreach ($variation_info['variations'] as $variation) :
                                                     $remote_variation_id = $variation['id'] ?: 0;
-                                                    $color_select_id = 'azinsanaat-variation-color-' . $remote_variation_id;
-                                                    $warranty_select_id = 'azinsanaat-variation-warranty-' . $remote_variation_id;
                                                     ?>
                                                     <tr data-remote-variation-id="<?php echo esc_attr($remote_variation_id); ?>">
                                                         <td><?php echo esc_html($remote_variation_id ?: '—'); ?></td>
                                                         <td><?php echo esc_html($variation['attributes'] ?: '—'); ?></td>
-                                                        <td>
-                                                            <label class="screen-reader-text" for="<?php echo esc_attr($color_select_id); ?>"><?php esc_html_e('انتخاب رنگ', 'azinsanaat-connection'); ?></label>
-                                                            <select
-                                                                id="<?php echo esc_attr($color_select_id); ?>"
-                                                                name="variation_attributes[<?php echo esc_attr($remote_variation_id); ?>][color]"
-                                                                class="azinsanaat-variation-color"
-                                                                form="<?php echo esc_attr($form_id); ?>"
-                                                                required
-                                                            >
-                                                                <option value=""><?php esc_html_e('انتخاب رنگ', 'azinsanaat-connection'); ?></option>
-                                                                <?php foreach ($color_terms as $term) : ?>
-                                                                    <option value="<?php echo esc_attr($term->term_id); ?>"><?php echo esc_html($term->name); ?></option>
-                                                                <?php endforeach; ?>
-                                                            </select>
-                                                        </td>
-                                                        <td>
-                                                            <label class="screen-reader-text" for="<?php echo esc_attr($warranty_select_id); ?>"><?php esc_html_e('انتخاب گارانتی', 'azinsanaat-connection'); ?></label>
-                                                            <select
-                                                                id="<?php echo esc_attr($warranty_select_id); ?>"
-                                                                name="variation_attributes[<?php echo esc_attr($remote_variation_id); ?>][warranty]"
-                                                                class="azinsanaat-variation-warranty"
-                                                                form="<?php echo esc_attr($form_id); ?>"
-                                                            >
-                                                                <option value=""><?php esc_html_e('بدون گارانتی', 'azinsanaat-connection'); ?></option>
-                                                                <?php foreach ($warranty_terms as $term) : ?>
-                                                                    <option value="<?php echo esc_attr($term->term_id); ?>"><?php echo esc_html($term->name); ?></option>
-                                                                <?php endforeach; ?>
-                                                            </select>
-                                                        </td>
+                                                        <?php foreach ($attribute_taxonomies as $taxonomy) :
+                                                            $select_id = sprintf('azinsanaat-variation-%s-%d', esc_attr($taxonomy), $remote_variation_id);
+                                                            $placeholder = sprintf(
+                                                                __('انتخاب %s', 'azinsanaat-connection'),
+                                                                $attribute_labels[$taxonomy] ?? $taxonomy
+                                                            );
+                                                            ?>
+                                                            <td>
+                                                                <label class="screen-reader-text" for="<?php echo esc_attr($select_id); ?>"><?php echo esc_html($placeholder); ?></label>
+                                                                <select
+                                                                    id="<?php echo esc_attr($select_id); ?>"
+                                                                    name="variation_attributes[<?php echo esc_attr($remote_variation_id); ?>][<?php echo esc_attr($taxonomy); ?>]"
+                                                                    class="azinsanaat-variation-attribute azinsanaat-variation-attribute--<?php echo esc_attr($taxonomy); ?>"
+                                                                    data-attribute-key="<?php echo esc_attr($taxonomy); ?>"
+                                                                    form="<?php echo esc_attr($form_id); ?>"
+                                                                    required
+                                                                >
+                                                                    <option value=""><?php echo esc_html($placeholder); ?></option>
+                                                                    <?php foreach ($attribute_terms[$taxonomy] as $term) : ?>
+                                                                        <option value="<?php echo esc_attr($term->term_id); ?>"><?php echo esc_html($term->name); ?></option>
+                                                                    <?php endforeach; ?>
+                                                                </select>
+                                                            </td>
+                                                        <?php endforeach; ?>
                                                         <td><?php echo esc_html($variation['price'] !== '' ? $variation['price'] : ($variation['regular_price'] !== '' ? $variation['regular_price'] : '—')); ?></td>
                                                         <td><?php echo esc_html($variation['sale_price'] !== '' ? $variation['sale_price'] : '—'); ?></td>
                                                         <td><?php echo esc_html($variation['stock_status']); ?></td>
                                                         <td><?php echo isset($variation['stock_quantity']) ? esc_html($variation['stock_quantity']) : '—'; ?></td>
-                                                    </tr>
+                                                </tr>
                                                 <?php endforeach; ?>
                                                 </tbody>
                                             </table>
@@ -1425,7 +1621,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             $import_sections = self::prepare_import_sections($raw_import_sections, $sections_submitted);
 
             $variation_attributes = isset($_POST['variation_attributes']) ? wp_unslash($_POST['variation_attributes']) : [];
-            $variation_attributes = self::sanitize_variation_attributes($variation_attributes);
+            $variation_attributes = self::sanitize_variation_attributes($variation_attributes, $connection_id ?: null);
 
             $result = self::import_remote_product(
                 $product_id,
@@ -1481,7 +1677,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                 $raw_import_sections = isset($_POST['import_sections']) ? wp_unslash((array) $_POST['import_sections']) : [];
             }
             $variation_attributes = isset($_POST['variation_attributes']) ? wp_unslash($_POST['variation_attributes']) : [];
-            $variation_attributes = self::sanitize_variation_attributes($variation_attributes);
+            $variation_attributes = self::sanitize_variation_attributes($variation_attributes, $connection_id ?: null);
 
             $import_sections = self::prepare_import_sections($raw_import_sections, $sections_submitted);
             $result = self::import_remote_product($product_id, $connection_id ?: null, $site_category_id ?: null, $import_sections, $variation_attributes);
@@ -1538,13 +1734,27 @@ if (!class_exists('Azinsanaat_Connection')) {
             }
 
             $normalized_sections = self::normalize_import_sections($import_sections);
+            $connection = self::get_connection_or_default($connection_id ?: null);
+            if ($connection) {
+                $connection_id = $connection['id'];
+            }
+
+            $attribute_taxonomies = self::get_connection_attribute_taxonomies($connection_id ?: null);
+            $attribute_labels = [];
+            foreach ($attribute_taxonomies as $taxonomy) {
+                $attribute_labels[$taxonomy] = function_exists('wc_attribute_label')
+                    ? wc_attribute_label($taxonomy, null)
+                    : $taxonomy;
+            }
+
+            $variation_attributes = self::sanitize_variation_attributes($variation_attributes, $connection_id ?: null);
 
             $remote_variations = [];
             $is_variable_product = ($decoded['type'] ?? '') === 'variable' || !empty($decoded['variations']);
 
             if ($is_variable_product) {
-                if (empty($variation_attributes)) {
-                    return new WP_Error('azinsanaat_missing_variation_attributes', __('انتخاب رنگ برای تمامی متغیرها الزامی است.', 'azinsanaat-connection'));
+                if (empty($attribute_taxonomies)) {
+                    return new WP_Error('azinsanaat_missing_attribute_config', __('ویژگی‌های موردنیاز برای ساخت متغیرها تنظیم نشده‌اند.', 'azinsanaat-connection'));
                 }
 
                 $remote_variations = self::fetch_remote_variations($client, $product_id);
@@ -1561,8 +1771,21 @@ if (!class_exists('Azinsanaat_Connection')) {
                 }
 
                 foreach ($remote_variations_map as $remote_variation_id => $variation) {
-                    if (!isset($variation_attributes[$remote_variation_id]) || empty($variation_attributes[$remote_variation_id]['color'])) {
-                        return new WP_Error('azinsanaat_missing_color', __('انتخاب رنگ برای تمامی متغیرها الزامی است.', 'azinsanaat-connection'));
+                    if (!isset($variation_attributes[$remote_variation_id])) {
+                        return new WP_Error('azinsanaat_missing_variation_attributes', __('انتخاب ویژگی‌های الزامی برای تمامی متغیرها ضروری است.', 'azinsanaat-connection'));
+                    }
+
+                    foreach ($attribute_taxonomies as $taxonomy) {
+                        if (empty($variation_attributes[$remote_variation_id][$taxonomy])) {
+                            $label = $attribute_labels[$taxonomy] ?? $taxonomy;
+                            return new WP_Error(
+                                'azinsanaat_missing_attribute_term',
+                                sprintf(
+                                    __('انتخاب مقدار برای ویژگی %s الزامی است.', 'azinsanaat-connection'),
+                                    $label
+                                )
+                            );
+                        }
                     }
                 }
 
@@ -1778,15 +2001,11 @@ if (!class_exists('Azinsanaat_Connection')) {
 
         protected static function create_variable_product_structure(int $post_id, string $product_name, ?string $connection_id, array $variation_attributes, array $remote_variations)
         {
-            $color_taxonomy = 'pa_color';
-            $warranty_taxonomy = 'pa_warranty';
+            $attribute_taxonomies = self::get_connection_attribute_taxonomies($connection_id ?: null);
 
-            if (!taxonomy_exists($color_taxonomy)) {
-                return new WP_Error('azinsanaat_missing_color_attribute', __('ویژگی رنگ در ووکامرس یافت نشد.', 'azinsanaat-connection'));
+            if (empty($attribute_taxonomies)) {
+                return new WP_Error('azinsanaat_missing_attribute_config', __('ویژگی‌های موردنیاز برای ساخت متغیرها تنظیم نشده‌اند.', 'azinsanaat-connection'));
             }
-
-            $color_terms_map = [];
-            $warranty_terms_map = [];
 
             $remote_variations_map = [];
             foreach ($remote_variations as $variation) {
@@ -1796,57 +2015,45 @@ if (!class_exists('Azinsanaat_Connection')) {
                 }
             }
 
+            $attribute_terms_map = [];
+            foreach ($attribute_taxonomies as $taxonomy) {
+                if (!taxonomy_exists($taxonomy)) {
+                    return new WP_Error('azinsanaat_missing_attribute_taxonomy', __('ویژگی انتخاب‌شده در ووکامرس وجود ندارد.', 'azinsanaat-connection'));
+                }
+
+                $attribute_terms_map[$taxonomy] = [];
+            }
+
             foreach ($variation_attributes as $remote_id => $attributes) {
-                if (empty($attributes['color'])) {
-                    return new WP_Error('azinsanaat_missing_color', __('انتخاب رنگ برای تمامی متغیرها الزامی است.', 'azinsanaat-connection'));
-                }
-
-                $color_term = get_term($attributes['color'], $color_taxonomy);
-                if (!$color_term || is_wp_error($color_term)) {
-                    return new WP_Error('azinsanaat_invalid_color_term', __('رنگ انتخاب‌شده معتبر نیست.', 'azinsanaat-connection'));
-                }
-
-                $color_terms_map[$color_term->term_id] = $color_term;
-
-                if (!empty($attributes['warranty'])) {
-                    if (!taxonomy_exists($warranty_taxonomy)) {
-                        return new WP_Error('azinsanaat_missing_warranty_attribute', __('ویژگی گارانتی در ووکامرس یافت نشد.', 'azinsanaat-connection'));
+                foreach ($attribute_taxonomies as $taxonomy) {
+                    $term_id = isset($attributes[$taxonomy]) ? absint($attributes[$taxonomy]) : 0;
+                    if (!$term_id) {
+                        return new WP_Error('azinsanaat_missing_attribute_term', __('انتخاب مقدار برای تمامی ویژگی‌های متغیر الزامی است.', 'azinsanaat-connection'));
                     }
 
-                    $warranty_term = get_term($attributes['warranty'], $warranty_taxonomy);
-                    if (!$warranty_term || is_wp_error($warranty_term)) {
-                        return new WP_Error('azinsanaat_invalid_warranty_term', __('گارانتی انتخاب‌شده معتبر نیست.', 'azinsanaat-connection'));
+                    $term = get_term($term_id, $taxonomy);
+                    if (!$term || is_wp_error($term)) {
+                        return new WP_Error('azinsanaat_invalid_attribute_term', __('مقدار انتخاب‌شده برای ویژگی معتبر نیست.', 'azinsanaat-connection'));
                     }
 
-                    $warranty_terms_map[$warranty_term->term_id] = $warranty_term;
+                    $attribute_terms_map[$taxonomy][$term->term_id] = $term;
                 }
             }
 
-            if (empty($color_terms_map)) {
-                return new WP_Error('azinsanaat_missing_color', __('انتخاب رنگ برای تمامی متغیرها الزامی است.', 'azinsanaat-connection'));
-            }
+            foreach ($attribute_taxonomies as $taxonomy) {
+                if (empty($attribute_terms_map[$taxonomy])) {
+                    return new WP_Error('azinsanaat_missing_attribute_term', __('انتخاب مقدار برای تمامی ویژگی‌های متغیر الزامی است.', 'azinsanaat-connection'));
+                }
 
-            wp_set_object_terms($post_id, array_keys($color_terms_map), $color_taxonomy);
-
-            if (!empty($warranty_terms_map)) {
-                wp_set_object_terms($post_id, array_keys($warranty_terms_map), $warranty_taxonomy);
+                wp_set_object_terms($post_id, array_keys($attribute_terms_map[$taxonomy]), $taxonomy);
             }
 
             wp_set_object_terms($post_id, 'variable', 'product_type');
 
-            $product_attributes = [
-                $color_taxonomy => [
-                    'name'         => $color_taxonomy,
-                    'is_visible'   => 1,
-                    'is_variation' => 1,
-                    'is_taxonomy'  => 1,
-                    'value'        => '',
-                ],
-            ];
-
-            if (!empty($warranty_terms_map)) {
-                $product_attributes[$warranty_taxonomy] = [
-                    'name'         => $warranty_taxonomy,
+            $product_attributes = [];
+            foreach ($attribute_taxonomies as $taxonomy) {
+                $product_attributes[$taxonomy] = [
+                    'name'         => $taxonomy,
                     'is_visible'   => 1,
                     'is_variation' => 1,
                     'is_taxonomy'  => 1,
@@ -1857,17 +2064,24 @@ if (!class_exists('Azinsanaat_Connection')) {
             update_post_meta($post_id, '_product_attributes', $product_attributes);
 
             foreach ($variation_attributes as $remote_variation_id => $attributes) {
-                if (empty($attributes['color'])) {
+                $variation_terms = [];
+                foreach ($attribute_taxonomies as $taxonomy) {
+                    $term_id = $attributes[$taxonomy] ?? 0;
+                    if ($term_id && isset($attribute_terms_map[$taxonomy][$term_id])) {
+                        $variation_terms[$taxonomy] = $attribute_terms_map[$taxonomy][$term_id];
+                    }
+                }
+
+                if (count($variation_terms) !== count($attribute_taxonomies)) {
                     continue;
                 }
 
-                $color_term = $color_terms_map[$attributes['color']] ?? null;
-                $warranty_term = $attributes['warranty'] && isset($warranty_terms_map[$attributes['warranty']])
-                    ? $warranty_terms_map[$attributes['warranty']]
-                    : null;
+                $title_suffix = implode(' - ', array_map(static function ($term) {
+                    return $term->name;
+                }, $variation_terms));
 
                 $variation_post = [
-                    'post_title'   => $product_name ? $product_name . ' - ' . $color_term->name : '',
+                    'post_title'   => $product_name ? $product_name . ' - ' . $title_suffix : '',
                     'post_status'  => 'publish',
                     'post_type'    => 'product_variation',
                     'post_parent'  => $post_id,
@@ -1879,10 +2093,9 @@ if (!class_exists('Azinsanaat_Connection')) {
                     return new WP_Error('azinsanaat_variation_creation_failed', __('امکان ایجاد متغیر جدید وجود ندارد.', 'azinsanaat-connection'));
                 }
 
-                update_post_meta($variation_id, 'attribute_' . $color_taxonomy, $color_term->slug);
-
-                if ($warranty_term) {
-                    update_post_meta($variation_id, 'attribute_' . $warranty_taxonomy, $warranty_term->slug);
+                foreach ($attribute_taxonomies as $taxonomy) {
+                    $term = $variation_terms[$taxonomy];
+                    update_post_meta($variation_id, 'attribute_' . $taxonomy, $term->slug);
                 }
 
                 if ($connection_id) {
@@ -1952,11 +2165,17 @@ if (!class_exists('Azinsanaat_Connection')) {
             return self::normalize_import_sections($sections);
         }
 
-        protected static function sanitize_variation_attributes($input): array
+        protected static function sanitize_variation_attributes($input, ?string $connection_id = null): array
         {
             $output = [];
 
             if (!is_array($input)) {
+                return $output;
+            }
+
+            $attribute_taxonomies = self::get_connection_attribute_taxonomies($connection_id ?: null);
+
+            if (empty($attribute_taxonomies)) {
                 return $output;
             }
 
@@ -1967,10 +2186,11 @@ if (!class_exists('Azinsanaat_Connection')) {
                     continue;
                 }
 
-                $output[$remote_id] = [
-                    'color'    => isset($attributes['color']) ? absint($attributes['color']) : 0,
-                    'warranty' => isset($attributes['warranty']) ? absint($attributes['warranty']) : 0,
-                ];
+                $output[$remote_id] = [];
+
+                foreach ($attribute_taxonomies as $taxonomy) {
+                    $output[$remote_id][$taxonomy] = isset($attributes[$taxonomy]) ? absint($attributes[$taxonomy]) : 0;
+                }
             }
 
             return $output;

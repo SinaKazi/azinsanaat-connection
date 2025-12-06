@@ -43,7 +43,7 @@
         var $row = $form.closest('tr');
         var variationAttributes = {};
         var hasVariationRows = false;
-        var missingColor = false;
+        var missingRequiredAttributes = false;
 
         if ($row.length) {
             var $categorySelect = $row.find('.azinsanaat-site-category-select');
@@ -72,17 +72,23 @@
                         return;
                     }
 
-                    var colorValue = $variationRow.find('.azinsanaat-variation-color').val() || '';
-                    var warrantyValue = $variationRow.find('.azinsanaat-variation-warranty').val() || '';
+                    variationAttributes[remoteVariationId] = variationAttributes[remoteVariationId] || {};
 
-                    variationAttributes[remoteVariationId] = {
-                        color: colorValue,
-                        warranty: warrantyValue
-                    };
+                    $variationRow.find('.azinsanaat-variation-attribute').each(function () {
+                        var $select = $(this);
+                        var attributeKey = $select.data('attributeKey') || '';
+                        var value = $select.val() || '';
 
-                    if (!colorValue) {
-                        missingColor = true;
-                    }
+                        if (!attributeKey) {
+                            return;
+                        }
+
+                        variationAttributes[remoteVariationId][attributeKey] = value;
+
+                        if ($select.prop('required') && !value) {
+                            missingRequiredAttributes = true;
+                        }
+                    });
                 });
             }
         }
@@ -96,8 +102,8 @@
         var nonce = $form.find('input[name="_wpnonce"]').val();
         var success = false;
 
-        if (hasVariationRows && missingColor) {
-            renderMessage($feedback, 'error', settings.messages && settings.messages.missingColor ? settings.messages.missingColor : '');
+        if (hasVariationRows && missingRequiredAttributes) {
+            renderMessage($feedback, 'error', settings.messages && settings.messages.missingAttributes ? settings.messages.missingAttributes : '');
             return;
         }
 
