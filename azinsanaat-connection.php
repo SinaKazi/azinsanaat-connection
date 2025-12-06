@@ -754,16 +754,23 @@ if (!class_exists('Azinsanaat_Connection')) {
                 );
             }
 
+            $page = isset($_GET['page']) ? sanitize_key((string) wp_unslash($_GET['page'])) : '';
             $is_products_page = $hook === 'azinsanaat-connection_page_azinsanaat-connection-products'
                 || 0 === strpos($hook, 'azinsanaat-connection_page_azinsanaat-connection-products-')
-                || 0 === strpos($hook, 'azinsanaat-connection_page_azinsanaat-connection-products-network');
+                || 0 === strpos($hook, 'azinsanaat-connection_page_azinsanaat-connection-products-network')
+                || $page === 'azinsanaat-connection-products'
+                || str_starts_with($page, 'azinsanaat-connection-products-')
+                || str_starts_with($page, 'azinsanaat-connection-products-network');
 
             if ($is_products_page) {
+                $products_css_file = plugin_dir_path(__FILE__) . 'assets/css/products-page.css';
+                $products_css_version = file_exists($products_css_file) ? (string) filemtime($products_css_file) : '1.1.1';
+
                 wp_enqueue_style(
                     'azinsanaat-products-page',
                     plugin_dir_url(__FILE__) . 'assets/css/products-page.css',
                     [],
-                    '1.0.0'
+                    $products_css_version
                 );
 
                 wp_enqueue_script(
