@@ -1291,7 +1291,15 @@ if (!class_exists('Azinsanaat_Connection')) {
                             <tr data-search-text="<?php echo esc_attr($search_text); ?>">
                                 <td><?php echo esc_html(($index + 1) + (($current_page - 1) * $per_page)); ?></td>
                                 <td><?php echo esc_html($product['id']); ?></td>
-                                <td><?php echo esc_html($product['name']); ?></td>
+                                <td>
+                                    <?php if ($source_product_url) : ?>
+                                        <a href="<?php echo esc_url($source_product_url); ?>" target="_blank" rel="noopener noreferrer">
+                                            <?php echo esc_html($product['name']); ?>
+                                        </a>
+                                    <?php else : ?>
+                                        <?php echo esc_html($product['name']); ?>
+                                    <?php endif; ?>
+                                </td>
                                 <td><?php echo isset($product['price']) ? esc_html($product['price']) : '—'; ?></td>
                                 <td><?php echo esc_html(self::format_stock_status($product['stock_status'] ?? '')); ?></td>
                                 <td><?php echo isset($product['stock_quantity']) ? esc_html($product['stock_quantity']) : '—'; ?></td>
