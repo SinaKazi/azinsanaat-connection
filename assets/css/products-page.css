@@ -62,3 +62,8 @@
 .azinsanaat-products-page .azinsanaat-product-variations-table td {
     font-size: 12px;
 }
+
+.azinsanaat-products-page .tablenav-pages .pagination-links .page-numbers {
+    display: inline-block;
+    margin: 0 6px;
+}
