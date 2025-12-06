@@ -763,7 +763,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                     'azinsanaat-products-page',
                     plugin_dir_url(__FILE__) . 'assets/css/products-page.css',
                     [],
-                    '1.1.0'
+                    '1.0.0'
                 );
 
                 wp_enqueue_script(
