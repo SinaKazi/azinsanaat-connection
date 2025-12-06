@@ -949,6 +949,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             $total_pages = 1;
             $total_remote_products_count = 0;
             $search_query = isset($_GET['search_query']) ? sanitize_text_field(wp_unslash($_GET['search_query'])) : '';
+            $normalized_search_query = self::normalize_search_text($search_query);
 
             $connected_remote_ids = [];
             $connected_products_count_by_connection = [];
@@ -1059,6 +1060,11 @@ if (!class_exists('Azinsanaat_Connection')) {
                         foreach ($decoded as $product) {
                             $remote_product_id = isset($product['id']) ? (int) $product['id'] : 0;
                             $connection_lookup_key = $remote_product_id ? $selected_connection_id . '|' . $remote_product_id : '';
+                            $search_text = self::build_product_search_text($product);
+
+                            if ($normalized_search_query !== '' && !self::search_text_matches_query($search_text, $normalized_search_query)) {
+                                continue;
+                            }
 
                             if ($connection_lookup_key && isset($connected_remote_ids[$connection_lookup_key])) {
                                 continue;
@@ -1070,6 +1076,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                             }
 
                             if (count($products) < $per_page) {
+                                $product['__search_text'] = $search_text;
                                 $products[] = $product;
                                 $available_products_seen++;
                             }
@@ -1277,15 +1284,9 @@ if (!class_exists('Azinsanaat_Connection')) {
                         </thead>
                         <tbody>
                         <?php foreach ($products as $index => $product) :
-                            $search_text_parts = [];
-                            $search_text_parts[] = isset($product['id']) ? (string) $product['id'] : '';
-                            $search_text_parts[] = isset($product['name']) ? (string) $product['name'] : '';
-                            $search_text_parts[] = isset($product['price']) ? (string) $product['price'] : '';
-                            $search_text_parts[] = self::format_stock_status($product['stock_status'] ?? '');
-                            $search_text_parts[] = isset($product['stock_quantity']) ? (string) $product['stock_quantity'] : '';
-                            $search_text = sanitize_text_field(trim(implode(' ', array_filter($search_text_parts, static function ($value) {
-                                return $value !== '';
-                            }))));
+                            $search_text = isset($product['__search_text']) && is_string($product['__search_text'])
+                                ? $product['__search_text']
+                                : self::build_product_search_text($product);
                             ?>
                             <tr data-search-text="<?php echo esc_attr($search_text); ?>">
                                 <td><?php echo esc_html(($index + 1) + (($current_page - 1) * $per_page)); ?></td>
@@ -2399,6 +2400,59 @@ if (!class_exists('Azinsanaat_Connection')) {
                 default:
                     return $status !== '' ? $status : '—';
             }
+        }
+
+        protected static function build_product_search_text(array $product): string
+        {
+            $search_text_parts = [];
+            $search_text_parts[] = isset($product['id']) ? (string) $product['id'] : '';
+            $search_text_parts[] = isset($product['name']) ? (string) $product['name'] : '';
+            $search_text_parts[] = isset($product['sku']) ? (string) $product['sku'] : '';
+            $search_text_parts[] = isset($product['price']) ? (string) $product['price'] : '';
+            $search_text_parts[] = self::format_stock_status($product['stock_status'] ?? '');
+            $search_text_parts[] = isset($product['stock_quantity']) ? (string) $product['stock_quantity'] : '';
+
+            return sanitize_text_field(trim(implode(' ', array_filter($search_text_parts, static function ($value) {
+                return $value !== '';
+            }))));
+        }
+
+        protected static function normalize_search_text(string $text): string
+        {
+            $normalized = sanitize_text_field($text);
+            $normalized = trim(preg_replace('/\s+/u', ' ', $normalized));
+
+            if ($normalized === '') {
+                return '';
+            }
+
+            return function_exists('mb_strtolower') ? mb_strtolower($normalized, 'UTF-8') : strtolower($normalized);
+        }
+
+        protected static function search_text_matches_query(string $search_text, string $normalized_query): bool
+        {
+            if ($normalized_query === '') {
+                return true;
+            }
+
+            $normalized_text = self::normalize_search_text($search_text);
+
+            foreach (explode(' ', $normalized_query) as $term) {
+                $term = trim($term);
+                if ($term === '') {
+                    continue;
+                }
+
+                if (function_exists('mb_strpos')) {
+                    if (mb_strpos($normalized_text, $term) === false) {
+                        return false;
+                    }
+                } elseif (strpos($normalized_text, $term) === false) {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         public static function register_product_meta_box(): void
