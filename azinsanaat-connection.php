@@ -950,69 +950,6 @@ if (!class_exists('Azinsanaat_Connection')) {
             $total_remote_products_count = 0;
             $search_query = isset($_GET['search_query']) ? sanitize_text_field(wp_unslash($_GET['search_query'])) : '';
 
-            if (is_wp_error($client)) {
-                $error_message = $client->get_error_message();
-            } else {
-                $request_args = [
-                    'per_page' => $per_page,
-                    'page'     => $current_page,
-                    'status'   => 'publish',
-                ];
-
-                $request_args['stock_status'] = $stock_filter;
-
-                if ($search_query !== '') {
-                    $request_args['search'] = $search_query;
-                }
-
-                $response = $client->get('products', $request_args);
-
-                if (is_wp_error($response)) {
-                    $error_message = $response->get_error_message();
-                } else {
-                    $status = wp_remote_retrieve_response_code($response);
-                    if ($status < 200 || $status >= 300) {
-                        $body = json_decode(wp_remote_retrieve_body($response), true);
-                        $error_message = $body['message'] ?? sprintf(__('پاسخ نامعتبر از سرور (کد: %s).', 'azinsanaat-connection'), $status);
-                    } else {
-                        $decoded = json_decode(wp_remote_retrieve_body($response), true);
-                        if (!is_array($decoded)) {
-                            $error_message = __('پاسخ نامعتبر از سرور دریافت شد.', 'azinsanaat-connection');
-                        } else {
-                            $products = $decoded;
-                            if (!empty($products)) {
-                                usort($products, function ($item_a, $item_b) {
-                                    $priority = [
-                                        'instock'     => 0,
-                                        'onbackorder' => 1,
-                                        'outofstock'  => 2,
-                                    ];
-
-                                    $a_status = isset($item_a['stock_status']) ? (string) $item_a['stock_status'] : '';
-                                    $b_status = isset($item_b['stock_status']) ? (string) $item_b['stock_status'] : '';
-                                    $a_priority = $priority[$a_status] ?? 3;
-                                    $b_priority = $priority[$b_status] ?? 3;
-
-                                    if ($a_priority === $b_priority) {
-                                        return 0;
-                                    }
-
-                                    return ($a_priority < $b_priority) ? -1 : 1;
-                                });
-                            }
-                            $total_pages = (int) wp_remote_retrieve_header($response, 'x-wp-totalpages');
-                            if ($total_pages < 1) {
-                                $total_pages = 1;
-                            }
-                            $total_remote_products_count = (int) wp_remote_retrieve_header($response, 'x-wp-total');
-                            if ($total_remote_products_count < 0) {
-                                $total_remote_products_count = 0;
-                            }
-                        }
-                    }
-                }
-            }
-
             $connected_remote_ids = [];
             $connected_products_count_by_connection = [];
             $product_variation_details = [];
@@ -1049,28 +986,119 @@ if (!class_exists('Azinsanaat_Connection')) {
 
             $selected_connection_connected_count = $connected_products_count_by_connection[$selected_connection_id] ?? 0;
 
-            if (!empty($products)) {
-                $products = array_values(array_filter($products, function ($product) use ($selected_connection_id, $connected_remote_ids) {
-                    $remote_product_id = isset($product['id']) ? (int) $product['id'] : 0;
-                    if (!$remote_product_id) {
-                        return true;
+            if (is_wp_error($client)) {
+                $error_message = $client->get_error_message();
+            } else {
+                $request_args = [
+                    'per_page' => $per_page,
+                    'status'   => 'publish',
+                ];
+
+                $request_args['stock_status'] = $stock_filter;
+
+                if ($search_query !== '') {
+                    $request_args['search'] = $search_query;
+                }
+
+                $api_page = 1;
+                $target_offset = ($current_page - 1) * $per_page;
+                $available_products_seen = 0;
+                $processed_all_pages = false;
+
+                while (count($products) < $per_page) {
+                    $request_args['page'] = $api_page;
+                    $response = $client->get('products', $request_args);
+
+                    if (is_wp_error($response)) {
+                        $error_message = $response->get_error_message();
+                        break;
                     }
 
-                    $connection_lookup_key = $selected_connection_id . '|' . $remote_product_id;
+                    $status = wp_remote_retrieve_response_code($response);
+                    if ($status < 200 || $status >= 300) {
+                        $body = json_decode(wp_remote_retrieve_body($response), true);
+                        $error_message = $body['message'] ?? sprintf(__('پاسخ نامعتبر از سرور (کد: %s).', 'azinsanaat-connection'), $status);
+                        break;
+                    }
 
-                    return !isset($connected_remote_ids[$connection_lookup_key]);
-                }));
-            }
+                    $decoded = json_decode(wp_remote_retrieve_body($response), true);
+                    if (!is_array($decoded)) {
+                        $error_message = __('پاسخ نامعتبر از سرور دریافت شد.', 'azinsanaat-connection');
+                        break;
+                    }
 
-            if (!$error_message) {
-                $available_remote_products_count = $total_remote_products_count > 0
-                    ? max(0, $total_remote_products_count - $selected_connection_connected_count)
-                    : count($products) + max(0, ($current_page - 1) * $per_page);
+                    $total_pages = (int) wp_remote_retrieve_header($response, 'x-wp-totalpages');
+                    if ($total_pages < 1) {
+                        $total_pages = 1;
+                    }
+                    $total_remote_products_count = (int) wp_remote_retrieve_header($response, 'x-wp-total');
+                    if ($total_remote_products_count < 0) {
+                        $total_remote_products_count = 0;
+                    }
 
-                $total_pages = max(1, (int) ceil($available_remote_products_count / $per_page));
+                    if (!empty($decoded)) {
+                        usort($decoded, function ($item_a, $item_b) {
+                            $priority = [
+                                'instock'     => 0,
+                                'onbackorder' => 1,
+                                'outofstock'  => 2,
+                            ];
 
-                if ($current_page > $total_pages) {
-                    $current_page = $total_pages;
+                            $a_status = isset($item_a['stock_status']) ? (string) $item_a['stock_status'] : '';
+                            $b_status = isset($item_b['stock_status']) ? (string) $item_b['stock_status'] : '';
+                            $a_priority = $priority[$a_status] ?? 3;
+                            $b_priority = $priority[$b_status] ?? 3;
+
+                            if ($a_priority === $b_priority) {
+                                return 0;
+                            }
+
+                            return ($a_priority < $b_priority) ? -1 : 1;
+                        });
+
+                        foreach ($decoded as $product) {
+                            $remote_product_id = isset($product['id']) ? (int) $product['id'] : 0;
+                            $connection_lookup_key = $remote_product_id ? $selected_connection_id . '|' . $remote_product_id : '';
+
+                            if ($connection_lookup_key && isset($connected_remote_ids[$connection_lookup_key])) {
+                                continue;
+                            }
+
+                            if ($available_products_seen < $target_offset) {
+                                $available_products_seen++;
+                                continue;
+                            }
+
+                            if (count($products) < $per_page) {
+                                $products[] = $product;
+                                $available_products_seen++;
+                            }
+                        }
+                    }
+
+                    if ($api_page >= $total_pages) {
+                        $processed_all_pages = true;
+                        break;
+                    }
+
+                    $api_page++;
+                }
+
+                if (!$error_message) {
+                    $available_remote_products_count = $processed_all_pages
+                        ? $available_products_seen
+                        : max(
+                            $available_products_seen,
+                            $total_remote_products_count > 0
+                                ? max(0, $total_remote_products_count - $selected_connection_connected_count)
+                                : 0
+                        );
+
+                    $total_pages = max(1, (int) ceil($available_remote_products_count / $per_page));
+
+                    if ($current_page > $total_pages) {
+                        $current_page = $total_pages;
+                    }
                 }
             }
 
