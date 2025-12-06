@@ -1287,6 +1287,9 @@ if (!class_exists('Azinsanaat_Connection')) {
                             $search_text = isset($product['__search_text']) && is_string($product['__search_text'])
                                 ? $product['__search_text']
                                 : self::build_product_search_text($product);
+                            $source_product_url = isset($product['permalink']) && is_string($product['permalink'])
+                                ? $product['permalink']
+                                : '';
                             ?>
                             <tr data-search-text="<?php echo esc_attr($search_text); ?>">
                                 <td><?php echo esc_html(($index + 1) + (($current_page - 1) * $per_page)); ?></td>
