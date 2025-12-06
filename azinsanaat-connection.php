@@ -880,6 +880,8 @@ if (!class_exists('Azinsanaat_Connection')) {
                 }
             }
 
+            $selected_connection_connected_count = $connected_products_count_by_connection[$selected_connection_id] ?? 0;
+
             if (!empty($products)) {
                 $products = array_values(array_filter($products, function ($product) use ($selected_connection_id, $connected_remote_ids) {
                     $remote_product_id = isset($product['id']) ? (int) $product['id'] : 0;
@@ -891,6 +893,18 @@ if (!class_exists('Azinsanaat_Connection')) {
 
                     return !isset($connected_remote_ids[$connection_lookup_key]);
                 }));
+            }
+
+            if (!$error_message) {
+                $available_remote_products_count = $total_remote_products_count > 0
+                    ? max(0, $total_remote_products_count - $selected_connection_connected_count)
+                    : count($products) + max(0, ($current_page - 1) * $per_page);
+
+                $total_pages = max(1, (int) ceil($available_remote_products_count / $per_page));
+
+                if ($current_page > $total_pages) {
+                    $current_page = $total_pages;
+                }
             }
 
             if (!$error_message && !empty($products)) {
@@ -968,7 +982,6 @@ if (!class_exists('Azinsanaat_Connection')) {
                     <div class="notice notice-error"><p><?php echo esc_html($error_message); ?></p></div>
                 <?php endif; ?>
                 <?php
-                $selected_connection_connected_count = $connected_products_count_by_connection[$selected_connection_id] ?? 0;
                 ?>
                 <div class="notice notice-info azinsanaat-products-summary">
                     <p>
