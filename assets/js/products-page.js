@@ -26,6 +26,31 @@
         }
     }
 
+    function renderProgress($container, steps) {
+        $container.empty();
+
+        if (!steps || !steps.length) {
+            return;
+        }
+
+        var $list = $('<ol></ol>').addClass('azinsanaat-import-progress__list');
+
+        steps.forEach(function (step) {
+            var message = step && step.message ? step.message : '';
+            if (!message) {
+                return;
+            }
+
+            var $item = $('<li></li>')
+                .addClass('azinsanaat-import-progress__item')
+                .text(message);
+
+            $list.append($item);
+        });
+
+        $container.append($list);
+    }
+
     $(document).on('submit', '.azinsanaat-import-form', function (event) {
         var $form = $(this);
 
@@ -99,6 +124,7 @@
         var $button = $form.find('.azinsanaat-import-button');
         var $spinner = $form.find('.spinner');
         var $feedback = $form.find('.azinsanaat-import-feedback');
+        var $progress = $form.find('.azinsanaat-import-progress');
         var nonce = $form.find('input[name="_wpnonce"]').val();
         var success = false;
 
@@ -112,6 +138,10 @@
         if ($spinner.length) {
             $spinner.addClass('is-active');
         }
+
+        renderProgress($progress, settings.messages && settings.messages.startingImport ? [
+            { message: settings.messages.startingImport }
+        ] : []);
 
         var requestData = {
             action: 'azinsanaat_import_product',
@@ -136,13 +166,16 @@
             dataType: 'json',
             data: requestData
         }).done(function (response) {
+            var steps = (response && response.data && response.data.steps) ? response.data.steps : [];
             if (response && response.success) {
                 success = true;
                 renderMessage($feedback, 'success', response.data.message, response.data.edit_url || '');
+                renderProgress($progress, steps);
             } else {
                 var fallbackMessages = settings.messages || {};
                 var message = response && response.data && response.data.message ? response.data.message : fallbackMessages.genericError || '';
                 renderMessage($feedback, 'error', message);
+                renderProgress($progress, steps);
             }
         }).fail(function () {
             var fallback = (settings.messages && settings.messages.networkError) ? settings.messages.networkError : '';
