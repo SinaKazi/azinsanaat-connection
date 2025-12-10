@@ -336,12 +336,12 @@ if (!class_exists('Azinsanaat_Connection')) {
                     $selected[] = $taxonomy;
                 }
 
-                if (count($selected) >= 2) {
+                if (count($selected) >= 3) {
                     break;
                 }
             }
 
-            return array_slice($selected, 0, 2);
+            return array_slice($selected, 0, 3);
         }
 
         protected static function sanitize_connection_attribute_taxonomies($input): array
@@ -369,7 +369,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                 $sanitized = $default;
             }
 
-            return array_slice($sanitized, 0, 2);
+            return array_slice($sanitized, 0, 3);
         }
 
         protected static function get_connection_attribute_taxonomies(?string $connection_id): array
@@ -621,7 +621,19 @@ if (!class_exists('Azinsanaat_Connection')) {
                                                     <option value="<?php echo esc_attr($taxonomy_key); ?>" <?php selected($connection['attribute_taxonomies'][1] ?? '', $taxonomy_key); ?>><?php echo esc_html($taxonomy_label); ?></option>
                                                 <?php endforeach; ?>
                                             </select>
-                                            <span class="description"><?php esc_html_e('این دو ویژگی برای ساخت متغیرهای محصولات وارداتی مورد استفاده قرار می‌گیرند.', 'azinsanaat-connection'); ?></span>
+                                        </p>
+                                        <p>
+                                            <label for="azinsanaat-connection-attr-tertiary-<?php echo $connection_id; ?>"><?php esc_html_e('ویژگی سوم متغیرها (اختیاری)', 'azinsanaat-connection'); ?></label>
+                                            <select
+                                                id="azinsanaat-connection-attr-tertiary-<?php echo $connection_id; ?>"
+                                                name="<?php echo esc_attr($option_key); ?>[connections][<?php echo esc_attr($connection['id']); ?>][attribute_taxonomies][]"
+                                            >
+                                                <option value=""><?php esc_html_e('بدون انتخاب', 'azinsanaat-connection'); ?></option>
+                                                <?php foreach ($attribute_taxonomy_choices as $taxonomy_key => $taxonomy_label) : ?>
+                                                    <option value="<?php echo esc_attr($taxonomy_key); ?>" <?php selected($connection['attribute_taxonomies'][2] ?? '', $taxonomy_key); ?>><?php echo esc_html($taxonomy_label); ?></option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                            <span class="description"><?php esc_html_e('حداکثر سه ویژگی می‌توانند برای ساخت متغیرهای محصولات وارداتی استفاده شوند. اگر ویژگی سوم لازم نیست، گزینه‌ای انتخاب نکنید.', 'azinsanaat-connection'); ?></span>
                                         </p>
                                         <?php if (empty($attribute_taxonomy_choices)) : ?>
                                             <p class="description"><?php esc_html_e('هیچ ویژگی محصولی در ووکامرس تعریف نشده است. ابتدا ویژگی‌های موردنظر را ایجاد کنید.', 'azinsanaat-connection'); ?></p>
@@ -708,7 +720,19 @@ if (!class_exists('Azinsanaat_Connection')) {
                                         <option value="<?php echo esc_attr($taxonomy_key); ?>"><?php echo esc_html($taxonomy_label); ?></option>
                                     <?php endforeach; ?>
                                 </select>
-                                <span class="description"><?php esc_html_e('این دو ویژگی برای ساخت متغیرهای محصولات وارداتی مورد استفاده قرار می‌گیرند.', 'azinsanaat-connection'); ?></span>
+                            </p>
+                            <p>
+                                <label for="azinsanaat-connection-attr-tertiary-__key__"><?php esc_html_e('ویژگی سوم متغیرها (اختیاری)', 'azinsanaat-connection'); ?></label>
+                                <select
+                                    id="azinsanaat-connection-attr-tertiary-__key__"
+                                    name="<?php echo esc_attr($option_key); ?>[connections][__key__][attribute_taxonomies][]"
+                                >
+                                    <option value=""><?php esc_html_e('بدون انتخاب', 'azinsanaat-connection'); ?></option>
+                                    <?php foreach ($attribute_taxonomy_choices as $taxonomy_key => $taxonomy_label) : ?>
+                                        <option value="<?php echo esc_attr($taxonomy_key); ?>"><?php echo esc_html($taxonomy_label); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <span class="description"><?php esc_html_e('حداکثر سه ویژگی می‌توانند برای ساخت متغیرهای محصولات وارداتی استفاده شوند. اگر ویژگی سوم لازم نیست، گزینه‌ای انتخاب نکنید.', 'azinsanaat-connection'); ?></span>
                             </p>
                             <?php if (empty($attribute_taxonomy_choices)) : ?>
                                 <p class="description"><?php esc_html_e('هیچ ویژگی محصولی در ووکامرس تعریف نشده است. ابتدا ویژگی‌های موردنظر را ایجاد کنید.', 'azinsanaat-connection'); ?></p>
