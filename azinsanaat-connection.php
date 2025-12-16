@@ -349,8 +349,6 @@ if (!class_exists('Azinsanaat_Connection')) {
             $choices = self::get_attribute_taxonomy_choices();
             $available = array_keys($choices);
 
-            $default = self::get_default_attribute_taxonomies($available);
-
             if (empty($available)) {
                 return [];
             }
@@ -363,10 +361,6 @@ if (!class_exists('Azinsanaat_Connection')) {
                         $sanitized[] = $taxonomy;
                     }
                 }
-            }
-
-            if (empty($sanitized)) {
-                $sanitized = $default;
             }
 
             return array_slice($sanitized, 0, 3);
@@ -383,12 +377,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                 ? array_values(array_filter(array_map('sanitize_key', $connection['attribute_taxonomies'])))
                 : [];
 
-            if (!empty($configured)) {
-                return $configured;
-            }
-
-            $choices = self::get_attribute_taxonomy_choices();
-            return self::get_default_attribute_taxonomies(array_keys($choices));
+            return $configured;
         }
 
         protected static function normalize_connection(array $connection, ?string $fallback_id = null, ?string $fallback_interval = null): ?array
@@ -606,6 +595,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                                                 id="azinsanaat-connection-attr-primary-<?php echo $connection_id; ?>"
                                                 name="<?php echo esc_attr($option_key); ?>[connections][<?php echo esc_attr($connection['id']); ?>][attribute_taxonomies][]"
                                             >
+                                                <option value=""><?php esc_html_e('بدون انتخاب', 'azinsanaat-connection'); ?></option>
                                                 <?php foreach ($attribute_taxonomy_choices as $taxonomy_key => $taxonomy_label) : ?>
                                                     <option value="<?php echo esc_attr($taxonomy_key); ?>" <?php selected($connection['attribute_taxonomies'][0] ?? '', $taxonomy_key); ?>><?php echo esc_html($taxonomy_label); ?></option>
                                                 <?php endforeach; ?>
@@ -617,6 +607,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                                                 id="azinsanaat-connection-attr-secondary-<?php echo $connection_id; ?>"
                                                 name="<?php echo esc_attr($option_key); ?>[connections][<?php echo esc_attr($connection['id']); ?>][attribute_taxonomies][]"
                                             >
+                                                <option value=""><?php esc_html_e('بدون انتخاب', 'azinsanaat-connection'); ?></option>
                                                 <?php foreach ($attribute_taxonomy_choices as $taxonomy_key => $taxonomy_label) : ?>
                                                     <option value="<?php echo esc_attr($taxonomy_key); ?>" <?php selected($connection['attribute_taxonomies'][1] ?? '', $taxonomy_key); ?>><?php echo esc_html($taxonomy_label); ?></option>
                                                 <?php endforeach; ?>
@@ -705,6 +696,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                                     id="azinsanaat-connection-attr-primary-__key__"
                                     name="<?php echo esc_attr($option_key); ?>[connections][__key__][attribute_taxonomies][]"
                                 >
+                                    <option value=""><?php esc_html_e('بدون انتخاب', 'azinsanaat-connection'); ?></option>
                                     <?php foreach ($attribute_taxonomy_choices as $taxonomy_key => $taxonomy_label) : ?>
                                         <option value="<?php echo esc_attr($taxonomy_key); ?>"><?php echo esc_html($taxonomy_label); ?></option>
                                     <?php endforeach; ?>
@@ -716,6 +708,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                                     id="azinsanaat-connection-attr-secondary-__key__"
                                     name="<?php echo esc_attr($option_key); ?>[connections][__key__][attribute_taxonomies][]"
                                 >
+                                    <option value=""><?php esc_html_e('بدون انتخاب', 'azinsanaat-connection'); ?></option>
                                     <?php foreach ($attribute_taxonomy_choices as $taxonomy_key => $taxonomy_label) : ?>
                                         <option value="<?php echo esc_attr($taxonomy_key); ?>"><?php echo esc_html($taxonomy_label); ?></option>
                                     <?php endforeach; ?>
