@@ -815,7 +815,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                     'azinsanaat-products-page',
                     plugin_dir_url(__FILE__) . 'assets/js/products-page.js',
                     ['jquery'],
-                    '1.4.0',
+                    '1.5.0',
                     true
                 );
 
@@ -828,7 +828,8 @@ if (!class_exists('Azinsanaat_Connection')) {
                                     'genericError' => __('خطا در پردازش درخواست. لطفاً دوباره تلاش کنید.', 'azinsanaat-connection'),
                                     'networkError' => __('خطایی در ارتباط با سرور رخ داد.', 'azinsanaat-connection'),
                                     'editLinkLabel'=> __('مشاهده پیش‌نویس', 'azinsanaat-connection'),
-                                    'missingAttributes'=> __('انتخاب ویژگی‌های الزامی برای تمامی متغیرها ضروری است.', 'azinsanaat-connection'),
+                                    'missingAttributes'=> __('تکمیل ویژگی‌های متغیر انتخاب‌شده ضروری است.', 'azinsanaat-connection'),
+                                    'selectAtLeastOneVariation'=> __('انتخاب حداقل یک متغیر برای ساخت یا دریافت محصول ضروری است.', 'azinsanaat-connection'),
                                     'startingImport'=> __('در حال دریافت اطلاعات محصول از وب‌سرویس...', 'azinsanaat-connection'),
                                 ],
                             ]
@@ -1490,7 +1491,6 @@ if (!class_exists('Azinsanaat_Connection')) {
                                                                     class="azinsanaat-variation-attribute azinsanaat-variation-attribute--<?php echo esc_attr($taxonomy); ?>"
                                                                     data-attribute-key="<?php echo esc_attr($taxonomy); ?>"
                                                                     form="<?php echo esc_attr($form_id); ?>"
-                                                                    required
                                                                 >
                                                                     <option value=""><?php echo esc_html($placeholder); ?></option>
                                                                     <?php foreach ($attribute_terms[$taxonomy] as $term) : ?>
