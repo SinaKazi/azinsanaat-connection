@@ -68,6 +68,7 @@
         var $row = $form.closest('tr');
         var variationAttributes = {};
         var hasVariationRows = false;
+        var hasSelectedVariation = false;
         var missingRequiredAttributes = false;
 
         if ($row.length) {
@@ -98,6 +99,9 @@
                     }
 
                     variationAttributes[remoteVariationId] = variationAttributes[remoteVariationId] || {};
+                    var attributes = variationAttributes[remoteVariationId];
+                    var hasValueInRow = false;
+                    var rowMissingAttributes = false;
 
                     $variationRow.find('.azinsanaat-variation-attribute').each(function () {
                         var $select = $(this);
@@ -108,12 +112,28 @@
                             return;
                         }
 
-                        variationAttributes[remoteVariationId][attributeKey] = value;
+                        attributes[attributeKey] = value;
 
-                        if ($select.prop('required') && !value) {
-                            missingRequiredAttributes = true;
+                        if (value) {
+                            hasValueInRow = true;
                         }
                     });
+
+                    if (hasValueInRow) {
+                        Object.keys(attributes).forEach(function (key) {
+                            if (!attributes[key]) {
+                                rowMissingAttributes = true;
+                            }
+                        });
+
+                        if (rowMissingAttributes) {
+                            missingRequiredAttributes = true;
+                        } else {
+                            hasSelectedVariation = true;
+                        }
+                    } else {
+                        delete variationAttributes[remoteVariationId];
+                    }
                 });
             }
         }
@@ -130,6 +150,11 @@
 
         if (hasVariationRows && missingRequiredAttributes) {
             renderMessage($feedback, 'error', settings.messages && settings.messages.missingAttributes ? settings.messages.missingAttributes : '');
+            return;
+        }
+
+        if (hasVariationRows && !hasSelectedVariation) {
+            renderMessage($feedback, 'error', settings.messages && settings.messages.selectAtLeastOneVariation ? settings.messages.selectAtLeastOneVariation : '');
             return;
         }
 
