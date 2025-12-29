@@ -994,6 +994,8 @@ if (!class_exists('Azinsanaat_Connection')) {
             $connected_remote_ids = [];
             $connected_products_count_by_connection = [];
             $product_variation_details = [];
+            $preloaded_variations = [];
+            $preloaded_variation_errors = [];
 
             $connected_posts = get_posts([
                 'post_type'      => 'product',
@@ -1035,7 +1037,9 @@ if (!class_exists('Azinsanaat_Connection')) {
                     'status'   => 'publish',
                 ];
 
-                $request_args['stock_status'] = $stock_filter;
+                if ($stock_filter === 'outofstock') {
+                    $request_args['stock_status'] = $stock_filter;
+                }
 
                 if ($search_query !== '') {
                     $request_args['search'] = $search_query;
@@ -1101,12 +1105,50 @@ if (!class_exists('Azinsanaat_Connection')) {
                             $remote_product_id = isset($product['id']) ? (int) $product['id'] : 0;
                             $connection_lookup_key = $remote_product_id ? $selected_connection_id . '|' . $remote_product_id : '';
                             $search_text = self::build_product_search_text($product);
+                            $product_type = $product['type'] ?? '';
+                            $has_variations = ($product_type === 'variable') || (!empty($product['variations']));
+                            $has_available_variation = null;
+                            $matches_stock_filter = true;
 
                             if ($normalized_search_query !== '' && !self::search_text_matches_query($search_text, $normalized_search_query)) {
                                 continue;
                             }
 
                             if ($connection_lookup_key && isset($connected_remote_ids[$connection_lookup_key])) {
+                                continue;
+                            }
+
+                            if ($has_variations && $remote_product_id && !array_key_exists($remote_product_id, $preloaded_variation_errors)) {
+                                if (!array_key_exists($remote_product_id, $preloaded_variations)) {
+                                    $variations_response = self::fetch_remote_variations($client, $remote_product_id);
+
+                                    if (is_wp_error($variations_response)) {
+                                        $preloaded_variation_errors[$remote_product_id] = $variations_response->get_error_message();
+                                    } else {
+                                        $preloaded_variations[$remote_product_id] = $variations_response;
+                                    }
+                                }
+
+                                if (array_key_exists($remote_product_id, $preloaded_variations)) {
+                                    $has_available_variation = self::variations_have_available_stock($preloaded_variations[$remote_product_id]);
+                                }
+                            }
+
+                            if ($has_variations && $stock_filter === 'instock' && $has_available_variation === false) {
+                                continue;
+                            }
+
+                            if ($has_variations && $stock_filter === 'outofstock' && $has_available_variation === true) {
+                                continue;
+                            }
+
+                            if ($stock_filter === 'instock' && !$has_variations) {
+                                $matches_stock_filter = (($product['stock_status'] ?? '') === 'instock');
+                            } elseif ($stock_filter === 'outofstock' && !$has_variations) {
+                                $matches_stock_filter = (($product['stock_status'] ?? '') === 'outofstock');
+                            }
+
+                            if (!$matches_stock_filter) {
                                 continue;
                             }
 
@@ -1159,14 +1201,26 @@ if (!class_exists('Azinsanaat_Connection')) {
                         continue;
                     }
 
-                    $variations_response = self::fetch_remote_variations($client, $remote_product_id);
-
-                    if (is_wp_error($variations_response)) {
+                    if (isset($preloaded_variation_errors[$remote_product_id])) {
                         $product_variation_details[$remote_product_id] = [
-                            'error'      => $variations_response->get_error_message(),
+                            'error'      => $preloaded_variation_errors[$remote_product_id],
                             'variations' => [],
                         ];
                         continue;
+                    }
+
+                    if (!array_key_exists($remote_product_id, $preloaded_variations)) {
+                        $variations_response = self::fetch_remote_variations($client, $remote_product_id);
+
+                        if (is_wp_error($variations_response)) {
+                            $product_variation_details[$remote_product_id] = [
+                                'error'      => $variations_response->get_error_message(),
+                                'variations' => [],
+                            ];
+                            continue;
+                        }
+
+                        $preloaded_variations[$remote_product_id] = $variations_response;
                     }
 
                     $formatted_variations = array_map(function ($variation) {
@@ -1179,7 +1233,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                             'stock_status'   => self::format_stock_status($variation['stock_status'] ?? ''),
                             'stock_quantity' => $variation['stock_quantity'] ?? null,
                         ];
-                    }, $variations_response);
+                    }, $preloaded_variations[$remote_product_id]);
 
                     $product_variation_details[$remote_product_id] = [
                         'error'      => '',
@@ -3388,6 +3442,22 @@ if (!class_exists('Azinsanaat_Connection')) {
             } while (!empty($batch) && count($batch) === $per_page);
 
             return $variations;
+        }
+
+        protected static function variations_have_available_stock(array $variations): bool
+        {
+            foreach ($variations as $variation) {
+                $stock_status = $variation['stock_status'] ?? '';
+                $stock_quantity = $variation['stock_quantity'] ?? null;
+
+                if ($stock_status === 'instock') {
+                    if ($stock_quantity === null || $stock_quantity === '' || (is_numeric($stock_quantity) && (float) $stock_quantity > 0)) {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
         }
 
         protected static function get_local_variations_for_product(int $product_id): array
