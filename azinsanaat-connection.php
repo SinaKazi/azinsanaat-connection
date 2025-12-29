@@ -1035,6 +1035,8 @@ if (!class_exists('Azinsanaat_Connection')) {
                 $request_args = [
                     'per_page' => $per_page,
                     'status'   => 'publish',
+                    'orderby'  => 'total_sales',
+                    'order'    => 'desc',
                 ];
 
                 if ($stock_filter === 'outofstock') {
@@ -1083,6 +1085,13 @@ if (!class_exists('Azinsanaat_Connection')) {
 
                     if (!empty($decoded)) {
                         usort($decoded, function ($item_a, $item_b) {
+                            $a_sales = isset($item_a['total_sales']) ? (int) $item_a['total_sales'] : 0;
+                            $b_sales = isset($item_b['total_sales']) ? (int) $item_b['total_sales'] : 0;
+
+                            if ($a_sales !== $b_sales) {
+                                return ($a_sales > $b_sales) ? -1 : 1;
+                            }
+
                             $priority = [
                                 'instock'     => 0,
                                 'onbackorder' => 1,
@@ -1368,6 +1377,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                             <th><?php esc_html_e('شناسه', 'azinsanaat-connection'); ?></th>
                             <th><?php esc_html_e('نام', 'azinsanaat-connection'); ?></th>
                             <th><?php esc_html_e('قیمت', 'azinsanaat-connection'); ?></th>
+                            <th><?php esc_html_e('تعداد فروش', 'azinsanaat-connection'); ?></th>
                             <th><?php esc_html_e('وضعیت موجودی', 'azinsanaat-connection'); ?></th>
                             <th><?php esc_html_e('تعداد موجودی', 'azinsanaat-connection'); ?></th>
                             <th><?php esc_html_e('دسته‌بندی سایت', 'azinsanaat-connection'); ?></th>
@@ -1398,6 +1408,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                                     <?php endif; ?>
                                 </td>
                                 <td><?php echo isset($product['price']) ? esc_html($product['price']) : '—'; ?></td>
+                                <td><?php echo isset($product['total_sales']) ? esc_html(number_format_i18n((int) $product['total_sales'])) : '—'; ?></td>
                                 <td><?php echo esc_html(self::format_stock_status($product['stock_status'] ?? '')); ?></td>
                                 <td><?php echo isset($product['stock_quantity']) ? esc_html($product['stock_quantity']) : '—'; ?></td>
                                 <?php
