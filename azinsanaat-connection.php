@@ -3503,12 +3503,27 @@ if (!class_exists('Azinsanaat_Connection')) {
             return $variations;
         }
 
+        protected static function decode_maybe_urlencoded(string $value): string
+        {
+            if ($value === '') {
+                return '';
+            }
+
+            if (strpos($value, '%') === false) {
+                return $value;
+            }
+
+            return rawurldecode($value);
+        }
+
         protected static function format_variation_attributes(array $attributes): string
         {
             $parts = [];
             foreach ($attributes as $attribute) {
-                $name = $attribute['name'] ?? '';
-                $value = $attribute['option'] ?? ($attribute['value'] ?? '');
+                $name = isset($attribute['name']) ? self::decode_maybe_urlencoded((string) $attribute['name']) : '';
+                $value = isset($attribute['option'])
+                    ? self::decode_maybe_urlencoded((string) $attribute['option'])
+                    : (isset($attribute['value']) ? self::decode_maybe_urlencoded((string) $attribute['value']) : '');
 
                 if ($name || $value) {
                     if ($name && $value) {
