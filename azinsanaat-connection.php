@@ -1046,11 +1046,10 @@ if (!class_exists('Azinsanaat_Connection')) {
                 }
 
                 $api_page = 1;
-                $target_offset = ($current_page - 1) * $per_page;
-                $available_products_seen = 0;
                 $processed_all_pages = false;
+                $filtered_products = [];
 
-                while (count($products) < $per_page) {
+                while (!$processed_all_pages) {
                     $request_args['page'] = $api_page;
                     $response = $client->get('products', $request_args);
 
@@ -1152,16 +1151,8 @@ if (!class_exists('Azinsanaat_Connection')) {
                                 continue;
                             }
 
-                            if ($available_products_seen < $target_offset) {
-                                $available_products_seen++;
-                                continue;
-                            }
-
-                            if (count($products) < $per_page) {
-                                $product['__search_text'] = $search_text;
-                                $products[] = $product;
-                                $available_products_seen++;
-                            }
+                            $product['__search_text'] = $search_text;
+                            $filtered_products[] = $product;
                         }
                     }
 
@@ -1174,20 +1165,26 @@ if (!class_exists('Azinsanaat_Connection')) {
                 }
 
                 if (!$error_message) {
-                    $available_remote_products_count = $processed_all_pages
-                        ? $available_products_seen
-                        : max(
-                            $available_products_seen,
-                            $total_remote_products_count > 0
-                                ? max(0, $total_remote_products_count - $selected_connection_connected_count)
-                                : 0
-                        );
+                    usort($filtered_products, function ($product_a, $product_b) {
+                        $a_sales = isset($product_a['total_sales']) ? (int) $product_a['total_sales'] : 0;
+                        $b_sales = isset($product_b['total_sales']) ? (int) $product_b['total_sales'] : 0;
 
+                        if ($a_sales === $b_sales) {
+                            return 0;
+                        }
+
+                        return ($a_sales < $b_sales) ? 1 : -1;
+                    });
+
+                    $available_remote_products_count = count($filtered_products);
                     $total_pages = max(1, (int) ceil($available_remote_products_count / $per_page));
 
                     if ($current_page > $total_pages) {
                         $current_page = $total_pages;
                     }
+
+                    $offset = ($current_page - 1) * $per_page;
+                    $products = array_slice($filtered_products, $offset, $per_page);
                 }
             }
 
@@ -1370,6 +1367,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                             <th><?php esc_html_e('قیمت', 'azinsanaat-connection'); ?></th>
                             <th><?php esc_html_e('وضعیت موجودی', 'azinsanaat-connection'); ?></th>
                             <th><?php esc_html_e('تعداد موجودی', 'azinsanaat-connection'); ?></th>
+                            <th><?php esc_html_e('تعداد فروش', 'azinsanaat-connection'); ?></th>
                             <th><?php esc_html_e('دسته‌بندی سایت', 'azinsanaat-connection'); ?></th>
                             <th><?php esc_html_e('ویرایش محصول', 'azinsanaat-connection'); ?></th>
                             <th><?php esc_html_e('موارد واردسازی', 'azinsanaat-connection'); ?></th>
@@ -1400,6 +1398,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                                 <td><?php echo isset($product['price']) ? esc_html($product['price']) : '—'; ?></td>
                                 <td><?php echo esc_html(self::format_stock_status($product['stock_status'] ?? '')); ?></td>
                                 <td><?php echo isset($product['stock_quantity']) ? esc_html($product['stock_quantity']) : '—'; ?></td>
+                                <td><?php echo isset($product['total_sales']) ? esc_html(number_format_i18n((int) $product['total_sales'])) : '—'; ?></td>
                                 <?php
                                 $remote_product_id = (int) ($product['id'] ?? 0);
                                 $connection_lookup_key = $remote_product_id ? $selected_connection_id . '|' . $remote_product_id : '';
@@ -1503,7 +1502,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                                 $variation_info = $product_variation_details[$remote_product_id];
                                 ?>
                                 <tr class="azinsanaat-product-variations-row">
-                                    <td colspan="10">
+                                    <td colspan="11">
                                         <?php if (!empty($variation_info['error'])) : ?>
                                             <p class="description"><?php echo esc_html($variation_info['error']); ?></p>
                                         <?php elseif ($attribute_config_error) : ?>
