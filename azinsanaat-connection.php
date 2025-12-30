@@ -1106,7 +1106,6 @@ if (!class_exists('Azinsanaat_Connection')) {
                             $search_text = self::build_product_search_text($product);
                             $product_type = $product['type'] ?? '';
                             $has_variations = ($product_type === 'variable') || (!empty($product['variations']));
-                            $has_available_variation = null;
                             $matches_stock_filter = true;
 
                             if ($normalized_search_query !== '' && !self::search_text_matches_query($search_text, $normalized_search_query)) {
@@ -1117,33 +1116,9 @@ if (!class_exists('Azinsanaat_Connection')) {
                                 continue;
                             }
 
-                            if ($has_variations && $remote_product_id && !array_key_exists($remote_product_id, $preloaded_variation_errors)) {
-                                if (!array_key_exists($remote_product_id, $preloaded_variations)) {
-                                    $variations_response = self::fetch_remote_variations($client, $remote_product_id);
-
-                                    if (is_wp_error($variations_response)) {
-                                        $preloaded_variation_errors[$remote_product_id] = $variations_response->get_error_message();
-                                    } else {
-                                        $preloaded_variations[$remote_product_id] = $variations_response;
-                                    }
-                                }
-
-                                if (array_key_exists($remote_product_id, $preloaded_variations)) {
-                                    $has_available_variation = self::variations_have_available_stock($preloaded_variations[$remote_product_id]);
-                                }
-                            }
-
-                            if ($has_variations && $stock_filter === 'instock' && $has_available_variation === false) {
-                                continue;
-                            }
-
-                            if ($has_variations && $stock_filter === 'outofstock' && $has_available_variation === true) {
-                                continue;
-                            }
-
-                            if ($stock_filter === 'instock' && !$has_variations) {
+                            if ($stock_filter === 'instock') {
                                 $matches_stock_filter = (($product['stock_status'] ?? '') === 'instock');
-                            } elseif ($stock_filter === 'outofstock' && !$has_variations) {
+                            } elseif ($stock_filter === 'outofstock') {
                                 $matches_stock_filter = (($product['stock_status'] ?? '') === 'outofstock');
                             }
 
