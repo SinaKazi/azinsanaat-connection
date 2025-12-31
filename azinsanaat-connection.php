@@ -15,6 +15,7 @@ if (!class_exists('Azinsanaat_Connection')) {
     class Azinsanaat_Connection
     {
         const OPTION_KEY = 'azinsanaat_connection_options';
+        const OPTION_GROUP = 'azinsanaat_connection_options_group';
         const NONCE_ACTION_TEST = 'azinsanaat_connection_test_connection';
         const NONCE_ACTION_IMPORT = 'azinsanaat_connection_import_product';
         const NONCE_ACTION_META = 'azinsanaat_connection_product_meta';
@@ -43,6 +44,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             add_action('init', [__CLASS__, 'maybe_update_remote_cache_schema'], 5);
             add_action('init', [__CLASS__, 'ensure_cron_schedule']);
             add_action('init', [__CLASS__, 'ensure_plugin_capability']);
+            add_filter('option_page_capability_' . self::OPTION_GROUP, [__CLASS__, 'filter_settings_page_capability']);
             add_action('update_option_' . self::OPTION_KEY, [__CLASS__, 'handle_options_updated'], 10, 3);
 
             if (!is_admin()) {
@@ -72,7 +74,7 @@ if (!class_exists('Azinsanaat_Connection')) {
         public static function register_settings(): void
         {
             register_setting(
-                'azinsanaat_connection_options_group',
+                self::OPTION_GROUP,
                 self::OPTION_KEY,
                 [
                     'type'              => 'array',
@@ -84,6 +86,14 @@ if (!class_exists('Azinsanaat_Connection')) {
                     ],
                 ]
             );
+        }
+
+        /**
+         * Sets required capability for saving plugin options.
+         */
+        public static function filter_settings_page_capability(string $capability): string
+        {
+            return self::get_required_capability();
         }
 
         /**
@@ -885,7 +895,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                 <?php endif; ?>
                 <form method="post" action="<?php echo esc_url(admin_url('options.php')); ?>">
                     <?php
-                    settings_fields('azinsanaat_connection_options_group');
+                    settings_fields(self::OPTION_GROUP);
                     ?>
                     <h2><?php esc_html_e('اعلان خطا', 'azinsanaat-connection'); ?></h2>
                     <p class="description"><?php esc_html_e('شماره‌های موبایل مدیر را برای دریافت پیامک خطای کش وب‌سرویس وارد کنید. هر شماره را در یک خط بنویسید.', 'azinsanaat-connection'); ?></p>
