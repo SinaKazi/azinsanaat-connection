@@ -78,6 +78,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                     'default'           => [
                         'connections'   => [],
                         'sync_interval' => '15min',
+                        'admin_phone_numbers' => [],
                     ],
                 ]
             );
@@ -328,6 +329,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             }
 
             if (is_wp_error($client)) {
+                self::notify_cache_error($connection_id, $client->get_error_message());
                 return $client;
             }
 
@@ -372,6 +374,10 @@ if (!class_exists('Azinsanaat_Connection')) {
 
                 $has_more = count($products) === $per_page;
                 $page++;
+            }
+
+            if ($total_error instanceof WP_Error) {
+                self::notify_cache_error($connection_id, $total_error->get_error_message());
             }
 
             return $total_error ?: true;
@@ -424,6 +430,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             $output['sync_interval'] = isset($input['sync_interval'])
                 ? self::sanitize_sync_interval($input['sync_interval'])
                 : '15min';
+            $output['admin_phone_numbers'] = self::sanitize_phone_numbers($input['admin_phone_numbers'] ?? []);
             $default_connection_interval = $output['sync_interval'];
 
             $connections = [];
@@ -491,6 +498,32 @@ if (!class_exists('Azinsanaat_Connection')) {
             $output['connections'] = array_values($connections);
 
             return $output;
+        }
+
+        protected static function sanitize_phone_numbers($value): array
+        {
+            $numbers = [];
+
+            if (is_string($value)) {
+                $parts = preg_split('/[,\n]+/', $value);
+            } elseif (is_array($value)) {
+                $parts = $value;
+            } else {
+                $parts = [];
+            }
+
+            foreach ($parts as $part) {
+                $sanitized = preg_replace('/[^0-9+]/', '', (string) $part);
+                if ($sanitized === '') {
+                    continue;
+                }
+
+                if (!in_array($sanitized, $numbers, true)) {
+                    $numbers[] = $sanitized;
+                }
+            }
+
+            return $numbers;
         }
 
         protected static function sanitize_sync_interval($value): string
@@ -612,6 +645,51 @@ if (!class_exists('Azinsanaat_Connection')) {
             return $configured;
         }
 
+        protected static function get_admin_phone_numbers(): array
+        {
+            $options = self::get_plugin_options();
+            $numbers = isset($options['admin_phone_numbers']) && is_array($options['admin_phone_numbers'])
+                ? array_values(array_filter($options['admin_phone_numbers'], 'is_string'))
+                : [];
+
+            return array_map('sanitize_text_field', $numbers);
+        }
+
+        protected static function get_connection_label(string $connection_id): string
+        {
+            $connections = self::get_connections_indexed();
+            if ($connection_id !== '' && isset($connections[$connection_id])) {
+                return $connections[$connection_id]['label'];
+            }
+
+            if ($connection_id !== '') {
+                return $connection_id;
+            }
+
+            return __('نامشخص', 'azinsanaat-connection');
+        }
+
+        protected static function notify_cache_error(string $connection_id, string $error_message): void
+        {
+            if (!function_exists('kaman_ippanel_edge_send_sms')) {
+                return;
+            }
+
+            $recipients = self::get_admin_phone_numbers();
+            if (empty($recipients)) {
+                return;
+            }
+
+            $label = self::get_connection_label($connection_id);
+            $message = sprintf(
+                __('خطا در کش وب‌سرویس %1$s: %2$s', 'azinsanaat-connection'),
+                $label,
+                sanitize_text_field($error_message)
+            );
+
+            kaman_ippanel_edge_send_sms($recipients, $message);
+        }
+
         protected static function normalize_connection(array $connection, ?string $fallback_id = null, ?string $fallback_interval = null): ?array
         {
             $store_url = isset($connection['store_url']) ? esc_url_raw(trim((string) $connection['store_url'])) : '';
@@ -669,6 +747,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             $options['sync_interval'] = isset($raw_options['sync_interval'])
                 ? self::sanitize_sync_interval($raw_options['sync_interval'])
                 : '15min';
+            $options['admin_phone_numbers'] = self::sanitize_phone_numbers($raw_options['admin_phone_numbers'] ?? []);
             $default_connection_interval = $options['sync_interval'];
 
             $connections = [];
@@ -768,6 +847,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             $connections = $options['connections'];
             $connection_message = self::get_transient_message('azinsanaat_connection_status_message');
             $default_sync_interval = $options['sync_interval'] ?? '15min';
+            $admin_phone_numbers = $options['admin_phone_numbers'] ?? [];
             $has_connections = !empty($connections);
             $option_key = self::OPTION_KEY;
             $sync_intervals = self::get_sync_intervals();
@@ -784,6 +864,12 @@ if (!class_exists('Azinsanaat_Connection')) {
                     <?php
                     settings_fields('azinsanaat_connection_options_group');
                     ?>
+                    <h2><?php esc_html_e('اعلان خطا', 'azinsanaat-connection'); ?></h2>
+                    <p class="description"><?php esc_html_e('شماره‌های موبایل مدیر را برای دریافت پیامک خطای کش وب‌سرویس وارد کنید. هر شماره را در یک خط بنویسید.', 'azinsanaat-connection'); ?></p>
+                    <p>
+                        <label for="azinsanaat-admin-phone-numbers"><?php esc_html_e('شماره‌های موبایل مدیر', 'azinsanaat-connection'); ?></label>
+                        <textarea id="azinsanaat-admin-phone-numbers" name="<?php echo esc_attr($option_key); ?>[admin_phone_numbers]" rows="3" class="large-text code"><?php echo esc_textarea(implode("\n", $admin_phone_numbers)); ?></textarea>
+                    </p>
                     <h2><?php esc_html_e('اتصالات وب‌سرویس', 'azinsanaat-connection'); ?></h2>
                     <p class="description"><?php esc_html_e('اطلاعات اتصال API هر فروشگاه ووکامرسی را در این بخش وارد کنید.', 'azinsanaat-connection'); ?></p>
                     <div id="azinsanaat-connections-container" class="azinsanaat-connections-container">
