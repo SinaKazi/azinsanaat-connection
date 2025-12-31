@@ -882,6 +882,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             $attribute_taxonomy_choices = self::get_attribute_taxonomy_choices();
             $cache_notice = self::get_transient_message('azinsanaat_connection_cache_status');
             $cache_last_synced = [];
+            $cache_refresh_forms = [];
             foreach ($connections as $connection) {
                 $cache_last_synced[$connection['id']] = self::get_remote_cache_last_synced_at($connection['id']);
             }
@@ -981,18 +982,28 @@ if (!class_exists('Azinsanaat_Connection')) {
                                             <p class="description"><?php esc_html_e('هیچ ویژگی محصولی در ووکامرس تعریف نشده است. ابتدا ویژگی‌های موردنظر را ایجاد کنید.', 'azinsanaat-connection'); ?></p>
                                         <?php endif; ?>
                                     </div>
+                                    <?php
+                                    $refresh_form_id = 'azinsanaat-cache-refresh-form-' . sanitize_html_class($connection['id']);
+                                    $cache_refresh_forms[] = [
+                                        'form_id'       => $refresh_form_id,
+                                        'connection_id' => $connection['id'],
+                                    ];
+                                    ?>
                                     <div class="azinsanaat-connection-cache">
                                         <p class="azinsanaat-connection-cache__meta">
                                             <strong><?php esc_html_e('آخرین به‌روزرسانی کش محصولات:', 'azinsanaat-connection'); ?></strong>
                                             <span><?php echo !empty($cache_last_synced[$connection['id']]) ? esc_html($cache_last_synced[$connection['id']]) : '—'; ?></span>
                                         </p>
                                         <p class="description"><?php esc_html_e('از کش محصولات برای به‌روزرسانی قیمت و موجودی استفاده می‌شود. در صورت نیاز می‌توانید آن را به‌صورت دستی به‌روزرسانی کنید.', 'azinsanaat-connection'); ?></p>
-                                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="azinsanaat-cache-refresh-form">
-                                            <?php wp_nonce_field(self::NONCE_ACTION_REFRESH_CACHE); ?>
-                                            <input type="hidden" name="action" value="azinsanaat_refresh_cache">
-                                            <input type="hidden" name="connection_id" value="<?php echo esc_attr($connection['id']); ?>">
-                                            <?php submit_button(__('به‌روزرسانی دستی کش محصولات', 'azinsanaat-connection'), 'secondary', 'submit', false); ?>
-                                        </form>
+                                        <p class="azinsanaat-cache-refresh-actions">
+                                            <button
+                                                type="submit"
+                                                class="button button-secondary"
+                                                form="<?php echo esc_attr($refresh_form_id); ?>"
+                                            >
+                                                <?php esc_html_e('به‌روزرسانی دستی کش محصولات', 'azinsanaat-connection'); ?>
+                                            </button>
+                                        </p>
                                         <?php if (!empty($cache_notice) && isset($cache_notice['connection_id']) && $cache_notice['connection_id'] === $connection['id']) : ?>
                                             <?php
                                             $notice_type = in_array($cache_notice['type'] ?? '', ['success', 'error', 'warning', 'info'], true)
@@ -1111,18 +1122,29 @@ if (!class_exists('Azinsanaat_Connection')) {
                                 <span>—</span>
                             </p>
                             <p class="description"><?php esc_html_e('از کش محصولات برای به‌روزرسانی قیمت و موجودی استفاده می‌شود. در صورت نیاز می‌توانید آن را به‌صورت دستی به‌روزرسانی کنید.', 'azinsanaat-connection'); ?></p>
-                            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="azinsanaat-cache-refresh-form">
-                                <?php wp_nonce_field(self::NONCE_ACTION_REFRESH_CACHE); ?>
-                                <input type="hidden" name="action" value="azinsanaat_refresh_cache">
-                                <input type="hidden" name="connection_id" value="__key__">
-                                <?php submit_button(__('به‌روزرسانی دستی کش محصولات', 'azinsanaat-connection'), 'secondary', 'submit', false); ?>
-                            </form>
+                            <p class="azinsanaat-cache-refresh-actions">
+                                <button type="button" class="button button-secondary" disabled="disabled" aria-disabled="true">
+                                    <?php esc_html_e('به‌روزرسانی دستی کش محصولات', 'azinsanaat-connection'); ?>
+                                </button>
+                                <span class="description"><?php esc_html_e('پس از ذخیره اتصال، امکان به‌روزرسانی کش فعال می‌شود.', 'azinsanaat-connection'); ?></span>
+                            </p>
                         </div>
                         <p class="azinsanaat-connection-actions">
                             <button type="button" class="button-link-delete azinsanaat-remove-connection"><?php esc_html_e('حذف این اتصال', 'azinsanaat-connection'); ?></button>
                         </p>
                     </div>
                 </script>
+                <?php if (!empty($cache_refresh_forms)) : ?>
+                <div class="azinsanaat-cache-refresh-forms" hidden aria-hidden="true">
+                        <?php foreach ($cache_refresh_forms as $refresh_form) : ?>
+                            <form id="<?php echo esc_attr($refresh_form['form_id']); ?>" method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="azinsanaat-cache-refresh-form">
+                                <?php wp_nonce_field(self::NONCE_ACTION_REFRESH_CACHE); ?>
+                                <input type="hidden" name="action" value="azinsanaat_refresh_cache">
+                                <input type="hidden" name="connection_id" value="<?php echo esc_attr($refresh_form['connection_id']); ?>">
+                            </form>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
                 <style>
                     .azinsanaat-connections-container .azinsanaat-connection-item {
                         border: 1px solid #ccd0d4;
