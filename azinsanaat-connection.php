@@ -19,6 +19,7 @@ if (!class_exists('Azinsanaat_Connection')) {
         const NONCE_ACTION_IMPORT = 'azinsanaat_connection_import_product';
         const NONCE_ACTION_META = 'azinsanaat_connection_product_meta';
         const NONCE_ACTION_MANUAL_SYNC = 'azinsanaat_connection_manual_sync';
+        const NONCE_ACTION_REFRESH_CACHE = 'azinsanaat_connection_refresh_cache';
         const CRON_HOOK = 'azinsanaat_connection_sync_products';
         const META_REMOTE_ID = '_azinsanaat_remote_id';
         const META_LAST_SYNC = '_azinsanaat_last_synced';
@@ -53,6 +54,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             add_action('admin_post_azinsanaat_test_connection', [__CLASS__, 'handle_test_connection']);
             add_action('admin_post_azinsanaat_import_product', [__CLASS__, 'handle_import_product']);
             add_action('admin_post_azinsanaat_manual_sync', [__CLASS__, 'handle_manual_sync']);
+            add_action('admin_post_azinsanaat_refresh_cache', [__CLASS__, 'handle_refresh_cache']);
             add_action('add_meta_boxes_product', [__CLASS__, 'register_product_meta_box']);
             add_action('save_post_product', [__CLASS__, 'handle_save_product']);
             add_action('admin_notices', [__CLASS__, 'display_product_sync_notice']);
@@ -320,6 +322,22 @@ if (!class_exists('Azinsanaat_Connection')) {
             );
 
             return (int) $count;
+        }
+
+        protected static function get_remote_cache_last_synced_at(string $connection_id): string
+        {
+            global $wpdb;
+
+            $table = self::get_remote_cache_table_name();
+
+            $last_synced = $wpdb->get_var(
+                $wpdb->prepare(
+                    "SELECT MAX(synced_at) FROM {$table} WHERE connection_id = %s",
+                    sanitize_key($connection_id)
+                )
+            );
+
+            return self::format_datetime_value($last_synced);
         }
 
         protected static function refresh_remote_products_cache(string $connection_id, $client = null)
@@ -852,6 +870,11 @@ if (!class_exists('Azinsanaat_Connection')) {
             $option_key = self::OPTION_KEY;
             $sync_intervals = self::get_sync_intervals();
             $attribute_taxonomy_choices = self::get_attribute_taxonomy_choices();
+            $cache_notice = self::get_transient_message('azinsanaat_connection_cache_status');
+            $cache_last_synced = [];
+            foreach ($connections as $connection) {
+                $cache_last_synced[$connection['id']] = self::get_remote_cache_last_synced_at($connection['id']);
+            }
             ?>
             <div class="wrap">
                 <h1><?php esc_html_e('تنظیمات اتصال آذین صنعت', 'azinsanaat-connection'); ?></h1>
@@ -946,6 +969,29 @@ if (!class_exists('Azinsanaat_Connection')) {
                                         </p>
                                         <?php if (empty($attribute_taxonomy_choices)) : ?>
                                             <p class="description"><?php esc_html_e('هیچ ویژگی محصولی در ووکامرس تعریف نشده است. ابتدا ویژگی‌های موردنظر را ایجاد کنید.', 'azinsanaat-connection'); ?></p>
+                                        <?php endif; ?>
+                                    </div>
+                                    <div class="azinsanaat-connection-cache">
+                                        <p class="azinsanaat-connection-cache__meta">
+                                            <strong><?php esc_html_e('آخرین به‌روزرسانی کش محصولات:', 'azinsanaat-connection'); ?></strong>
+                                            <span><?php echo !empty($cache_last_synced[$connection['id']]) ? esc_html($cache_last_synced[$connection['id']]) : '—'; ?></span>
+                                        </p>
+                                        <p class="description"><?php esc_html_e('از کش محصولات برای به‌روزرسانی قیمت و موجودی استفاده می‌شود. در صورت نیاز می‌توانید آن را به‌صورت دستی به‌روزرسانی کنید.', 'azinsanaat-connection'); ?></p>
+                                        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="azinsanaat-cache-refresh-form">
+                                            <?php wp_nonce_field(self::NONCE_ACTION_REFRESH_CACHE); ?>
+                                            <input type="hidden" name="action" value="azinsanaat_refresh_cache">
+                                            <input type="hidden" name="connection_id" value="<?php echo esc_attr($connection['id']); ?>">
+                                            <?php submit_button(__('به‌روزرسانی دستی کش محصولات', 'azinsanaat-connection'), 'secondary', 'submit', false); ?>
+                                        </form>
+                                        <?php if (!empty($cache_notice) && isset($cache_notice['connection_id']) && $cache_notice['connection_id'] === $connection['id']) : ?>
+                                            <?php
+                                            $notice_type = in_array($cache_notice['type'] ?? '', ['success', 'error', 'warning', 'info'], true)
+                                                ? $cache_notice['type']
+                                                : 'info';
+                                            ?>
+                                            <div class="notice notice-<?php echo esc_attr($notice_type); ?> inline azinsanaat-cache-refresh-notice">
+                                                <p><?php echo esc_html($cache_notice['message'] ?? ''); ?></p>
+                                            </div>
                                         <?php endif; ?>
                                     </div>
                                     <p class="azinsanaat-connection-actions">
@@ -1049,6 +1095,19 @@ if (!class_exists('Azinsanaat_Connection')) {
                                 <p class="description"><?php esc_html_e('هیچ ویژگی محصولی در ووکامرس تعریف نشده است. ابتدا ویژگی‌های موردنظر را ایجاد کنید.', 'azinsanaat-connection'); ?></p>
                             <?php endif; ?>
                         </div>
+                        <div class="azinsanaat-connection-cache">
+                            <p class="azinsanaat-connection-cache__meta">
+                                <strong><?php esc_html_e('آخرین به‌روزرسانی کش محصولات:', 'azinsanaat-connection'); ?></strong>
+                                <span>—</span>
+                            </p>
+                            <p class="description"><?php esc_html_e('از کش محصولات برای به‌روزرسانی قیمت و موجودی استفاده می‌شود. در صورت نیاز می‌توانید آن را به‌صورت دستی به‌روزرسانی کنید.', 'azinsanaat-connection'); ?></p>
+                            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="azinsanaat-cache-refresh-form">
+                                <?php wp_nonce_field(self::NONCE_ACTION_REFRESH_CACHE); ?>
+                                <input type="hidden" name="action" value="azinsanaat_refresh_cache">
+                                <input type="hidden" name="connection_id" value="__key__">
+                                <?php submit_button(__('به‌روزرسانی دستی کش محصولات', 'azinsanaat-connection'), 'secondary', 'submit', false); ?>
+                            </form>
+                        </div>
                         <p class="azinsanaat-connection-actions">
                             <button type="button" class="button-link-delete azinsanaat-remove-connection"><?php esc_html_e('حذف این اتصال', 'azinsanaat-connection'); ?></button>
                         </p>
@@ -1079,6 +1138,21 @@ if (!class_exists('Azinsanaat_Connection')) {
 
                     .azinsanaat-connection-actions {
                         margin-top: 10px;
+                    }
+
+                    .azinsanaat-connection-cache {
+                        border-top: 1px solid #ececec;
+                        margin-top: 10px;
+                        padding-top: 10px;
+                    }
+
+                    .azinsanaat-connection-cache__meta {
+                        margin: 0 0 6px 0;
+                    }
+
+                    .azinsanaat-cache-refresh-notice {
+                        margin-top: 8px;
+                        padding: 8px 12px;
                     }
                 </style>
             </div>
@@ -1255,6 +1329,61 @@ if (!class_exists('Azinsanaat_Connection')) {
                         'message' => $message,
                     ]);
                 }
+            }
+
+            wp_safe_redirect(self::get_settings_page_url());
+            exit;
+        }
+
+        public static function handle_refresh_cache(): void
+        {
+            if (!self::current_user_can_manage_plugin()) {
+                wp_die(__('شما اجازه دسترسی ندارید.', 'azinsanaat-connection'));
+            }
+
+            check_admin_referer(self::NONCE_ACTION_REFRESH_CACHE);
+
+            $connection_id = isset($_POST['connection_id']) ? sanitize_key(wp_unslash($_POST['connection_id'])) : '';
+            if (!$connection_id) {
+                self::set_transient_message('azinsanaat_connection_cache_status', [
+                    'type'          => 'error',
+                    'connection_id' => '',
+                    'message'       => __('شناسه اتصال معتبر نیست.', 'azinsanaat-connection'),
+                ]);
+                wp_safe_redirect(self::get_settings_page_url());
+                exit;
+            }
+
+            $connections = self::get_connections_indexed();
+            if (!isset($connections[$connection_id])) {
+                self::set_transient_message('azinsanaat_connection_cache_status', [
+                    'type'          => 'error',
+                    'connection_id' => $connection_id,
+                    'message'       => __('اتصال انتخاب‌شده یافت نشد.', 'azinsanaat-connection'),
+                ]);
+                wp_safe_redirect(self::get_settings_page_url());
+                exit;
+            }
+
+            $result = self::refresh_remote_products_cache($connection_id);
+
+            if (is_wp_error($result)) {
+                self::set_transient_message('azinsanaat_connection_cache_status', [
+                    'type'          => 'error',
+                    'connection_id' => $connection_id,
+                    'message'       => $result->get_error_message(),
+                ]);
+            } else {
+                $last_synced = self::get_remote_cache_last_synced_at($connection_id);
+                $message = $last_synced
+                    ? sprintf(__('کش محصولات با موفقیت به‌روزرسانی شد. زمان به‌روزرسانی: %s', 'azinsanaat-connection'), $last_synced)
+                    : __('کش محصولات با موفقیت به‌روزرسانی شد.', 'azinsanaat-connection');
+
+                self::set_transient_message('azinsanaat_connection_cache_status', [
+                    'type'          => 'success',
+                    'connection_id' => $connection_id,
+                    'message'       => $message,
+                ]);
             }
 
             wp_safe_redirect(self::get_settings_page_url());
@@ -3832,6 +3961,16 @@ if (!class_exists('Azinsanaat_Connection')) {
         protected static function get_formatted_sync_time(int $post_id): string
         {
             $timestamp = (int) get_post_meta($post_id, self::META_LAST_SYNC, true);
+            return self::format_datetime_value($timestamp);
+        }
+
+        protected static function format_datetime_value($value): string
+        {
+            if ($value === null || $value === '') {
+                return '';
+            }
+
+            $timestamp = is_numeric($value) ? (int) $value : strtotime((string) $value);
             if (!$timestamp) {
                 return '';
             }
