@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Azinsanaat Connection
  * Description: اتصال به آذین صنعت و همگام‌سازی محصولات از طریق API ووکامرس.
- * Version:     2.1.8
+ * Version:     2.1.9
  * Author:      Sina Kazemi
  * Requires PHP: 8.1
  */
@@ -334,7 +334,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             return (int) $count;
         }
 
-        protected static function get_remote_cache_last_synced_at(string $connection_id): string
+        protected static function get_remote_cache_last_synced_raw(string $connection_id): string
         {
             global $wpdb;
 
@@ -347,10 +347,35 @@ if (!class_exists('Azinsanaat_Connection')) {
                 )
             );
 
-            return self::format_datetime_value($last_synced);
+            return is_string($last_synced) ? $last_synced : '';
         }
 
-        protected static function refresh_remote_products_cache(string $connection_id, $client = null)
+        protected static function get_remote_cache_last_synced_at(string $connection_id): string
+        {
+            return self::format_datetime_value(self::get_remote_cache_last_synced_raw($connection_id));
+        }
+
+        protected static function get_incremental_cache_cursor(string $connection_id): string
+        {
+            $last_synced = self::get_remote_cache_last_synced_raw($connection_id);
+            if ($last_synced === '') {
+                return '';
+            }
+
+            $timestamp = strtotime($last_synced);
+            if (!$timestamp) {
+                return '';
+            }
+
+            $buffer = (int) apply_filters('azinsanaat_connection_cache_modified_after_buffer', 300);
+            if ($buffer < 0) {
+                $buffer = 0;
+            }
+
+            return gmdate('c', $timestamp - $buffer);
+        }
+
+        protected static function refresh_remote_products_cache(string $connection_id, $client = null, bool $incremental = true)
         {
             if ($client === null) {
                 $client = self::get_api_client($connection_id);
@@ -365,21 +390,47 @@ if (!class_exists('Azinsanaat_Connection')) {
             $page = 1;
             $has_more = true;
             $total_error = null;
+            $modified_after = $incremental ? self::get_incremental_cache_cursor($connection_id) : '';
+            $fallback_to_full = false;
 
             while ($has_more) {
-                $response = $client->get('products', [
+                $request_args = [
                     'per_page' => $per_page,
                     'page'     => $page,
                     'status'   => 'publish',
-                ]);
+                ];
+
+                if ($modified_after !== '') {
+                    $request_args['modified_after'] = $modified_after;
+                }
+
+                $response = $client->get('products', $request_args);
 
                 if (is_wp_error($response)) {
+                    if ($modified_after !== '' && !$fallback_to_full) {
+                        $modified_after = '';
+                        $fallback_to_full = true;
+                        $page = 1;
+                        $has_more = true;
+                        $total_error = null;
+                        continue;
+                    }
+
                     $total_error = $response;
                     break;
                 }
 
                 $status = wp_remote_retrieve_response_code($response);
                 if ($status < 200 || $status >= 300) {
+                    if ($modified_after !== '' && !$fallback_to_full) {
+                        $modified_after = '';
+                        $fallback_to_full = true;
+                        $page = 1;
+                        $has_more = true;
+                        $total_error = null;
+                        continue;
+                    }
+
                     $body = json_decode(wp_remote_retrieve_body($response), true);
                     $message = $body['message'] ?? sprintf(__('پاسخ نامعتبر از سرور (کد: %s).', 'azinsanaat-connection'), $status);
                     $total_error = new WP_Error('azinsanaat_cache_products_failed', $message);
