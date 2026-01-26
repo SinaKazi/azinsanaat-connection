@@ -241,7 +241,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             );
         }
 
-        protected static function get_cached_remote_product(string $connection_id, int $remote_id): ?array
+        protected static function get_cached_remote_product(string $connection_id, int $remote_id, bool $normalize = true): ?array
         {
             global $wpdb;
 
@@ -268,6 +268,11 @@ if (!class_exists('Azinsanaat_Connection')) {
 
             if (!is_array($variations)) {
                 $variations = [];
+            }
+
+            if ($normalize) {
+                $product = self::normalize_remote_prices($product, $connection_id);
+                $variations = self::normalize_remote_variations($variations, $connection_id);
             }
 
             return [
@@ -305,7 +310,12 @@ if (!class_exists('Azinsanaat_Connection')) {
                     continue;
                 }
 
+                $product = self::normalize_remote_prices($product, $connection_id);
                 $product['__cached_variations'] = $row['variations_data'] !== '' ? json_decode($row['variations_data'], true) : [];
+                if (!is_array($product['__cached_variations'])) {
+                    $product['__cached_variations'] = [];
+                }
+                $product['__cached_variations'] = self::normalize_remote_variations($product['__cached_variations'], $connection_id);
                 $product['__search_text'] = self::build_product_search_text($product);
 
                 if ($normalized_search_query !== '' && !self::search_text_matches_query($product['__search_text'], $normalized_search_query)) {
@@ -541,6 +551,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                     $connection_interval = isset($connection['sync_interval'])
                         ? self::sanitize_sync_interval($connection['sync_interval'])
                         : $default_connection_interval;
+                    $prices_in_rial = !empty($connection['prices_in_rial']);
 
                     $connections[] = [
                         'id'              => $id,
@@ -549,6 +560,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                         'consumer_key'    => $consumer_key,
                         'consumer_secret' => $consumer_secret,
                         'sync_interval'   => $connection_interval,
+                        'prices_in_rial'  => $prices_in_rial,
                         'attribute_taxonomies' => self::sanitize_connection_attribute_taxonomies(
                             $connection['attribute_taxonomies'] ?? null
                         ),
@@ -569,6 +581,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                         'consumer_key'    => $legacy_key,
                         'consumer_secret' => $legacy_secret,
                         'sync_interval'   => $default_connection_interval,
+                        'prices_in_rial'  => false,
                         'attribute_taxonomies' => self::sanitize_connection_attribute_taxonomies(null),
                     ];
                 }
@@ -801,6 +814,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             $interval = isset($connection['sync_interval'])
                 ? self::sanitize_sync_interval($connection['sync_interval'])
                 : ($fallback_interval ? self::sanitize_sync_interval($fallback_interval) : '15min');
+            $prices_in_rial = !empty($connection['prices_in_rial']);
 
             return [
                 'id'              => $id,
@@ -809,6 +823,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                 'consumer_key'    => $consumer_key,
                 'consumer_secret' => $consumer_secret,
                 'sync_interval'   => $interval,
+                'prices_in_rial'  => $prices_in_rial,
                 'attribute_taxonomies' => self::sanitize_connection_attribute_taxonomies(
                     $connection['attribute_taxonomies'] ?? null
                 ),
@@ -898,6 +913,65 @@ if (!class_exists('Azinsanaat_Connection')) {
         {
             $connection = self::get_connection_or_default('');
             return $connection ? $connection['id'] : '';
+        }
+
+        protected static function should_convert_prices(?string $connection_id): bool
+        {
+            $connection = self::get_connection_or_default($connection_id ?: null);
+
+            return !empty($connection['prices_in_rial']);
+        }
+
+        protected static function normalize_price_value($value): string
+        {
+            if (!is_numeric($value)) {
+                return (string) $value;
+            }
+
+            $normalized = (float) $value / 10;
+
+            if (function_exists('wc_format_decimal')) {
+                return wc_format_decimal($normalized);
+            }
+
+            $formatted = (string) $normalized;
+            if (strpos($formatted, '.') !== false) {
+                $formatted = rtrim(rtrim($formatted, '0'), '.');
+            }
+
+            return $formatted;
+        }
+
+        protected static function normalize_remote_prices(array $data, ?string $connection_id = null): array
+        {
+            if (!self::should_convert_prices($connection_id)) {
+                return $data;
+            }
+
+            foreach (['price', 'regular_price', 'sale_price'] as $field) {
+                if (isset($data[$field]) && $data[$field] !== '') {
+                    $data[$field] = self::normalize_price_value($data[$field]);
+                }
+            }
+
+            return $data;
+        }
+
+        protected static function normalize_remote_variations(array $variations, ?string $connection_id = null): array
+        {
+            if (!self::should_convert_prices($connection_id)) {
+                return $variations;
+            }
+
+            foreach ($variations as $index => $variation) {
+                if (!is_array($variation)) {
+                    continue;
+                }
+
+                $variations[$index] = self::normalize_remote_prices($variation, $connection_id);
+            }
+
+            return $variations;
         }
 
         protected static function get_product_connection_id(int $product_id): string
@@ -990,6 +1064,18 @@ if (!class_exists('Azinsanaat_Connection')) {
                                             <?php endforeach; ?>
                                         </select>
                                         <span class="description"><?php esc_html_e('زمان‌بندی اجرای خودکار به‌روزرسانی قیمت و موجودی محصولات متصل.', 'azinsanaat-connection'); ?></span>
+                                    </p>
+                                    <p>
+                                        <label>
+                                            <input
+                                                type="checkbox"
+                                                name="<?php echo esc_attr($option_key); ?>[connections][<?php echo esc_attr($connection['id']); ?>][prices_in_rial]"
+                                                value="1"
+                                                <?php checked(!empty($connection['prices_in_rial'])); ?>
+                                            >
+                                            <?php esc_html_e('قیمت‌های وب‌سرویس به ریال هستند (یک صفر حذف شود).', 'azinsanaat-connection'); ?>
+                                        </label>
+                                        <span class="description"><?php esc_html_e('در صورت فعال بودن، قیمت‌های دریافتی از وب‌سرویس بر ۱۰ تقسیم می‌شوند.', 'azinsanaat-connection'); ?></span>
                                     </p>
                                     <div class="azinsanaat-connection-attributes">
                                         <p>
@@ -1124,6 +1210,17 @@ if (!class_exists('Azinsanaat_Connection')) {
                                 <?php endforeach; ?>
                             </select>
                             <span class="description"><?php esc_html_e('زمان‌بندی اجرای خودکار به‌روزرسانی قیمت و موجودی محصولات متصل.', 'azinsanaat-connection'); ?></span>
+                        </p>
+                        <p>
+                            <label>
+                                <input
+                                    type="checkbox"
+                                    name="<?php echo esc_attr($option_key); ?>[connections][__key__][prices_in_rial]"
+                                    value="1"
+                                >
+                                <?php esc_html_e('قیمت‌های وب‌سرویس به ریال هستند (یک صفر حذف شود).', 'azinsanaat-connection'); ?>
+                            </label>
+                            <span class="description"><?php esc_html_e('در صورت فعال بودن، قیمت‌های دریافتی از وب‌سرویس بر ۱۰ تقسیم می‌شوند.', 'azinsanaat-connection'); ?></span>
                         </p>
                         <div class="azinsanaat-connection-attributes">
                             <p>
@@ -2832,7 +2929,9 @@ if (!class_exists('Azinsanaat_Connection')) {
             }
 
             $variations = isset($cached['variations']) ? $cached['variations'] : [];
-            self::upsert_remote_cache($connection_id, $remote_id, $decoded, $variations);
+            $raw_decoded = $decoded;
+            $decoded = self::normalize_remote_prices($decoded, $connection_id);
+            self::upsert_remote_cache($connection_id, $remote_id, $raw_decoded, $variations);
 
             return [
                 'product'    => $decoded,
@@ -3861,6 +3960,13 @@ if (!class_exists('Azinsanaat_Connection')) {
                 return new WP_Error('azinsanaat_invalid_variation', __('پاسخ نامعتبر برای متغیر دریافت شد.', 'azinsanaat-connection'));
             }
 
+            $resolved_connection_id = $connection_id ? sanitize_key($connection_id) : '';
+            if (!$resolved_connection_id) {
+                $parent_id = (int) wp_get_post_parent_id($variation_id);
+                $resolved_connection_id = $parent_id ? self::get_product_connection_id($parent_id) : '';
+            }
+
+            $data = self::normalize_remote_prices($data, $resolved_connection_id);
             $clean_callback = function_exists('wc_clean') ? 'wc_clean' : 'sanitize_text_field';
 
             if (isset($data['regular_price']) && $data['regular_price'] !== '') {
@@ -3946,15 +4052,23 @@ if (!class_exists('Azinsanaat_Connection')) {
                 $page++;
             } while (!empty($batch) && count($batch) === $per_page);
 
-            if ($connection_id && !empty($product_data)) {
-                self::upsert_remote_cache($connection_id, $remote_product_id, $product_data, $variations);
+            $normalized_variations = $connection_id ? self::normalize_remote_variations($variations, $connection_id) : $variations;
+            $raw_product_data = $product_data;
+
+            if ($connection_id && self::should_convert_prices($connection_id)) {
+                $cached_raw = self::get_cached_remote_product($connection_id, $remote_product_id, false);
+                $raw_product_data = $cached_raw && !empty($cached_raw['product']) ? $cached_raw['product'] : null;
+            }
+
+            if ($connection_id && !empty($raw_product_data)) {
+                self::upsert_remote_cache($connection_id, $remote_product_id, $raw_product_data, $variations);
             } elseif ($connection_id) {
-                $cached = self::get_cached_remote_product($connection_id, $remote_product_id);
+                $cached = self::get_cached_remote_product($connection_id, $remote_product_id, false);
                 $product_payload = $cached && !empty($cached['product']) ? $cached['product'] : ['id' => $remote_product_id];
                 self::upsert_remote_cache($connection_id, $remote_product_id, $product_payload, $variations);
             }
 
-            return $variations;
+            return $normalized_variations;
         }
 
         protected static function variations_have_available_stock(array $variations): bool
