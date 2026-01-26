@@ -30,6 +30,7 @@ if (!class_exists('Azinsanaat_Connection')) {
         const REMOTE_CACHE_DB_VERSION_OPTION = 'azinsanaat_remote_cache_db_version';
         const REMOTE_CACHE_DB_VERSION = '1.0.0';
         const REMOTE_CACHE_TABLE = 'azinsanaat_remote_products';
+        const CONNECTION_CACHE_ERRORS_TRANSIENT = 'azinsanaat_connection_cache_errors';
 
         /** @var array<int, array{message: string, timestamp: string}> */
         protected static array $import_progress_steps = [];
@@ -763,6 +764,14 @@ if (!class_exists('Azinsanaat_Connection')) {
 
         protected static function notify_cache_error(string $connection_id, string $error_message): void
         {
+            $errors = self::get_connection_cache_errors();
+            $errors[$connection_id] = [
+                'label'     => self::get_connection_label($connection_id),
+                'message'   => sanitize_text_field($error_message),
+                'timestamp' => current_time('mysql'),
+            ];
+            set_transient(self::CONNECTION_CACHE_ERRORS_TRANSIENT, $errors, HOUR_IN_SECONDS);
+
             if (!function_exists('kaman_ippanel_edge_send_sms')) {
                 return;
             }
@@ -780,6 +789,45 @@ if (!class_exists('Azinsanaat_Connection')) {
             );
 
             kaman_ippanel_edge_send_sms($recipients, $message);
+        }
+
+        protected static function get_connection_cache_errors(): array
+        {
+            $errors = get_transient(self::CONNECTION_CACHE_ERRORS_TRANSIENT);
+            if (!is_array($errors)) {
+                return [];
+            }
+
+            $sanitized = [];
+            foreach ($errors as $connection_id => $error) {
+                if (!is_array($error)) {
+                    continue;
+                }
+
+                $connection_id = sanitize_key((string) $connection_id);
+                if ($connection_id === '') {
+                    continue;
+                }
+
+                $label = isset($error['label']) && is_string($error['label'])
+                    ? sanitize_text_field($error['label'])
+                    : self::get_connection_label($connection_id);
+                $message = isset($error['message']) && is_string($error['message'])
+                    ? sanitize_text_field($error['message'])
+                    : '';
+
+                if ($message === '') {
+                    continue;
+                }
+
+                $sanitized[$connection_id] = [
+                    'label'     => $label,
+                    'message'   => $message,
+                    'timestamp' => isset($error['timestamp']) && is_string($error['timestamp']) ? $error['timestamp'] : '',
+                ];
+            }
+
+            return $sanitized;
         }
 
         protected static function normalize_connection(array $connection, ?string $fallback_id = null, ?string $fallback_interval = null): ?array
@@ -1624,6 +1672,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             $preloaded_variations = [];
             $preloaded_variation_errors = [];
             $available_remote_products_count = 0;
+            $connection_cache_errors = self::get_connection_cache_errors();
 
             $connected_posts = get_posts([
                 'post_type'      => 'product',
@@ -1666,6 +1715,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                 } else {
                     $cached_products = self::get_cached_products_for_connection($selected_connection_id, $stock_filter, $normalized_search_query);
                     $filtered_products = [];
+                    $connected_products = [];
 
                     if (!empty($cached_products)) {
                         usort($cached_products, function ($item_a, $item_b) {
@@ -1692,10 +1742,10 @@ if (!class_exists('Azinsanaat_Connection')) {
                             $connection_lookup_key = $remote_product_id ? $selected_connection_id . '|' . $remote_product_id : '';
 
                             if ($connection_lookup_key && isset($connected_remote_ids[$connection_lookup_key])) {
-                                continue;
+                                $connected_products[] = $product;
+                            } else {
+                                $filtered_products[] = $product;
                             }
-
-                            $filtered_products[] = $product;
                         }
                     }
 
@@ -1711,6 +1761,21 @@ if (!class_exists('Azinsanaat_Connection')) {
 
                         return ($a_sales < $b_sales) ? 1 : -1;
                     });
+
+                    usort($connected_products, function ($product_a, $product_b) {
+                        $a_sales = isset($product_a['total_sales']) ? (int) $product_a['total_sales'] : 0;
+                        $b_sales = isset($product_b['total_sales']) ? (int) $product_b['total_sales'] : 0;
+
+                        if ($a_sales === $b_sales) {
+                            return 0;
+                        }
+
+                        return ($a_sales < $b_sales) ? 1 : -1;
+                    });
+
+                    if (!empty($connected_products)) {
+                        $filtered_products = array_merge($filtered_products, $connected_products);
+                    }
 
                     $available_remote_products_count = count($filtered_products);
                     $total_pages = max(1, (int) ceil($available_remote_products_count / $per_page));
@@ -1841,6 +1906,24 @@ if (!class_exists('Azinsanaat_Connection')) {
                 <?php endif; ?>
                 <?php if ($error_message) : ?>
                     <div class="notice notice-error"><p><?php echo esc_html($error_message); ?></p></div>
+                <?php endif; ?>
+                <?php if (!empty($connection_cache_errors)) : ?>
+                    <div class="notice notice-error">
+                        <p><?php esc_html_e('خطا در اتصال برخی وب‌سرویس‌ها:', 'azinsanaat-connection'); ?></p>
+                        <ul class="azinsanaat-connection-errors-list">
+                            <?php foreach ($connection_cache_errors as $connection_error) : ?>
+                                <li>
+                                    <?php
+                                    echo esc_html(sprintf(
+                                        '%1$s: %2$s',
+                                        $connection_error['label'],
+                                        $connection_error['message']
+                                    ));
+                                    ?>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </div>
                 <?php endif; ?>
                 <?php
                 ?>
