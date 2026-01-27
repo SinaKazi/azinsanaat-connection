@@ -51,6 +51,121 @@
         $container.append($list);
     }
 
+    function updateNotice($container, type, message) {
+        if (!$container || !$container.length) {
+            return;
+        }
+
+        $container
+            .removeClass('notice-success notice-error notice-warning notice-info')
+            .addClass(type)
+            .find('p')
+            .text(message || '');
+    }
+
+    function normalizeBoolean(value) {
+        if (value === true || value === false) {
+            return value;
+        }
+
+        if (typeof value === 'number') {
+            return value === 1;
+        }
+
+        return value === '1';
+    }
+
+    function initCacheRefresh() {
+        var cacheSettings = settings.cache || {};
+        var messages = settings.messages || {};
+        var $cacheStatus = $('.azinsanaat-cache-status');
+        var $cacheProgress = $('.azinsanaat-cache-progress');
+
+        if (!$cacheStatus.length) {
+            return;
+        }
+
+        var cacheExists = normalizeBoolean($cacheStatus.data('cacheExists'));
+        var connectionId = $cacheStatus.data('connectionId') || '';
+        var nonce = $cacheStatus.data('refreshNonce') || '';
+        var clientError = $cacheStatus.data('clientError') || '';
+        var steps = [];
+        var pollInterval = cacheSettings.pollInterval || 800;
+
+        if (messages.cacheChecking) {
+            steps.push({ message: messages.cacheChecking });
+        }
+
+        if (cacheExists) {
+            if (messages.cacheExists) {
+                steps.push({ message: messages.cacheExists });
+            }
+
+            renderProgress($cacheProgress, steps);
+            return;
+        }
+
+        if (messages.cacheMissing) {
+            steps.push({ message: messages.cacheMissing });
+        }
+
+        renderProgress($cacheProgress, steps);
+
+        if (!connectionId || !nonce || clientError) {
+            updateNotice(
+                $cacheStatus,
+                'notice-error',
+                clientError || messages.cacheRefreshError || ''
+            );
+            return;
+        }
+
+        function requestChunk() {
+            $.ajax({
+                url: settings.ajaxUrl ? settings.ajaxUrl : window.ajaxurl,
+                method: 'POST',
+                dataType: 'json',
+                data: {
+                    action: 'azinsanaat_refresh_cache',
+                    nonce: nonce,
+                    connection_id: connectionId
+                }
+            }).done(function (response) {
+                if (response && response.success && response.data) {
+                    if (response.data.message) {
+                        steps.push({ message: response.data.message });
+                        renderProgress($cacheProgress, steps);
+                    }
+
+                    if (response.data.status === 'done') {
+                        updateNotice($cacheStatus, 'notice-success', response.data.message || messages.cacheRefreshDone || '');
+
+                        if (messages.cacheReloading) {
+                            steps.push({ message: messages.cacheReloading });
+                            renderProgress($cacheProgress, steps);
+                        }
+
+                        setTimeout(function () {
+                            window.location.reload();
+                        }, 800);
+                    } else {
+                        updateNotice($cacheStatus, 'notice-info', response.data.message || messages.cacheChecking || '');
+                        setTimeout(requestChunk, pollInterval);
+                    }
+                } else {
+                    var fallback = messages.cacheRefreshError || '';
+                    var message = response && response.data && response.data.message ? response.data.message : fallback;
+                    updateNotice($cacheStatus, 'notice-error', message);
+                }
+            }).fail(function () {
+                updateNotice($cacheStatus, 'notice-error', messages.cacheRefreshError || '');
+            });
+        }
+
+        updateNotice($cacheStatus, 'notice-warning', messages.cacheMissing || '');
+        requestChunk();
+    }
+
     $(document).on('submit', '.azinsanaat-import-form', function (event) {
         var $form = $(this);
 
@@ -214,6 +329,10 @@
                 $button.prop('disabled', false).removeAttr('aria-disabled');
             }
         });
+    });
+
+    $(document).ready(function () {
+        initCacheRefresh();
     });
 
 })(jQuery);
