@@ -21,6 +21,7 @@ if (!class_exists('Azinsanaat_Connection')) {
         const NONCE_ACTION_META = 'azinsanaat_connection_product_meta';
         const NONCE_ACTION_MANUAL_SYNC = 'azinsanaat_connection_manual_sync';
         const NONCE_ACTION_REFRESH_CACHE = 'azinsanaat_connection_refresh_cache';
+        const NONCE_ACTION_CLEAR_CACHE = 'azinsanaat_connection_clear_cache';
         const NONCE_ACTION_LOAD_PRODUCTS = 'azinsanaat_connection_load_products';
         const CRON_HOOK = 'azinsanaat_connection_sync_products';
         const META_REMOTE_ID = '_azinsanaat_remote_id';
@@ -69,6 +70,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             add_action('wp_ajax_azinsanaat_connect_simple_variation', [__CLASS__, 'ajax_connect_simple_variation']);
             add_action('wp_ajax_azinsanaat_import_product', [__CLASS__, 'ajax_import_product']);
             add_action('wp_ajax_azinsanaat_refresh_cache', [__CLASS__, 'handle_refresh_cache_ajax']);
+            add_action('wp_ajax_azinsanaat_clear_cache', [__CLASS__, 'handle_clear_cache_ajax']);
             add_action('wp_ajax_azinsanaat_load_products', [__CLASS__, 'ajax_load_products']);
         }
 
@@ -621,6 +623,19 @@ if (!class_exists('Azinsanaat_Connection')) {
             $state = get_transient(self::get_cache_refresh_state_key($connection_id));
 
             return is_array($state) ? $state : [];
+        }
+
+        protected static function clear_remote_cache(string $connection_id): void
+        {
+            global $wpdb;
+
+            $table = self::get_remote_cache_table_name();
+            $wpdb->query(
+                $wpdb->prepare(
+                    "DELETE FROM {$table} WHERE connection_id = %s",
+                    sanitize_key($connection_id)
+                )
+            );
         }
 
         protected static function set_cache_refresh_state(string $connection_id, array $state): void
@@ -1568,6 +1583,13 @@ if (!class_exists('Azinsanaat_Connection')) {
                                             >
                                                 <?php esc_html_e('به‌روزرسانی دستی کش محصولات', 'azinsanaat-connection'); ?>
                                             </button>
+                                            <button
+                                                type="button"
+                                                class="button button-secondary azinsanaat-cache-clear"
+                                                data-connection-id="<?php echo esc_attr($connection['id']); ?>"
+                                            >
+                                                <?php esc_html_e('پاکسازی کامل کش و دریافت مجدد', 'azinsanaat-connection'); ?>
+                                            </button>
                                         </p>
                                         <?php if (!empty($cache_notice) && isset($cache_notice['connection_id']) && $cache_notice['connection_id'] === $connection['id']) : ?>
                                             <?php
@@ -1702,6 +1724,9 @@ if (!class_exists('Azinsanaat_Connection')) {
                                 <button type="button" class="button button-secondary" disabled="disabled" aria-disabled="true">
                                     <?php esc_html_e('به‌روزرسانی دستی کش محصولات', 'azinsanaat-connection'); ?>
                                 </button>
+                                <button type="button" class="button button-secondary azinsanaat-cache-clear" disabled="disabled" aria-disabled="true">
+                                    <?php esc_html_e('پاکسازی کامل کش و دریافت مجدد', 'azinsanaat-connection'); ?>
+                                </button>
                                 <span class="description"><?php esc_html_e('پس از ذخیره اتصال، امکان به‌روزرسانی کش فعال می‌شود.', 'azinsanaat-connection'); ?></span>
                             </p>
                         </div>
@@ -1801,6 +1826,16 @@ if (!class_exists('Azinsanaat_Connection')) {
                                 'inProgress' => __('در حال به‌روزرسانی کش محصولات...', 'azinsanaat-connection'),
                                 'done'       => __('کش محصولات با موفقیت به‌روزرسانی شد.', 'azinsanaat-connection'),
                                 'error'      => __('به‌روزرسانی کش محصولات ناموفق بود.', 'azinsanaat-connection'),
+                            ],
+                        ],
+                        'cacheClear' => [
+                            'ajaxUrl'      => admin_url('admin-ajax.php'),
+                            'nonce'        => wp_create_nonce(self::NONCE_ACTION_CLEAR_CACHE),
+                            'pollInterval' => 800,
+                            'messages'     => [
+                                'inProgress' => __('در حال پاکسازی کش و دریافت مجدد محصولات...', 'azinsanaat-connection'),
+                                'done'       => __('کش محصولات با موفقیت پاکسازی و دوباره دریافت شد.', 'azinsanaat-connection'),
+                                'error'      => __('پاکسازی کش محصولات ناموفق بود.', 'azinsanaat-connection'),
                             ],
                         ],
                     ]
@@ -2085,6 +2120,72 @@ if (!class_exists('Azinsanaat_Connection')) {
             wp_send_json_success([
                 'status'  => 'in_progress',
                 'message' => $result['message'] ?? self::build_cache_refresh_progress_message((int) ($state['page'] ?? 1), (int) ($state['per_page'] ?? self::get_cache_per_page())),
+            ]);
+        }
+
+        public static function handle_clear_cache_ajax(): void
+        {
+            if (!self::current_user_can_manage_plugin()) {
+                wp_send_json_error(['message' => __('شما اجازه دسترسی ندارید.', 'azinsanaat-connection')], 403);
+            }
+
+            check_ajax_referer(self::NONCE_ACTION_CLEAR_CACHE, 'nonce');
+
+            $connection_id = isset($_POST['connection_id']) ? sanitize_key(wp_unslash($_POST['connection_id'])) : '';
+            if (!$connection_id) {
+                wp_send_json_error(['message' => __('شناسه اتصال معتبر نیست.', 'azinsanaat-connection')], 400);
+            }
+
+            $connections = self::get_connections_indexed();
+            if (!isset($connections[$connection_id])) {
+                wp_send_json_error(['message' => __('اتصال انتخاب‌شده یافت نشد.', 'azinsanaat-connection')], 404);
+            }
+
+            self::clear_cache_refresh_state($connection_id);
+            self::clear_remote_cache($connection_id);
+
+            $state = self::get_cache_refresh_state($connection_id);
+            if (empty($state)) {
+                $state = [
+                    'page'             => 1,
+                    'per_page'         => self::get_cache_per_page(),
+                    'per_page_index'   => 0,
+                    'modified_after'   => '',
+                    'fallback_to_full' => false,
+                ];
+            }
+
+            $result = self::refresh_remote_products_cache_chunk($connection_id, $state);
+            if (is_wp_error($result)) {
+                self::clear_cache_refresh_state($connection_id);
+                wp_send_json_error(['message' => $result->get_error_message()], 500);
+            }
+
+            if (($result['status'] ?? '') === 'done') {
+                self::clear_cache_refresh_state($connection_id);
+
+                $last_synced = self::get_remote_cache_last_synced_at($connection_id);
+                $message = $last_synced
+                    ? sprintf(__('کش محصولات با موفقیت پاکسازی و دوباره دریافت شد. زمان به‌روزرسانی: %s', 'azinsanaat-connection'), $last_synced)
+                    : __('کش محصولات با موفقیت پاکسازی و دوباره دریافت شد.', 'azinsanaat-connection');
+
+                self::set_transient_message('azinsanaat_connection_cache_status', [
+                    'type'          => 'success',
+                    'connection_id' => $connection_id,
+                    'message'       => $message,
+                ]);
+
+                wp_send_json_success([
+                    'status'  => 'done',
+                    'type'    => 'success',
+                    'message' => $message,
+                ]);
+            }
+
+            self::set_cache_refresh_state($connection_id, $result['state'] ?? $state);
+            wp_send_json_success([
+                'status'  => 'in_progress',
+                'message' => $result['message'] ?? __('در حال پاکسازی کش و دریافت مجدد محصولات...', 'azinsanaat-connection'),
             ]);
         }
 
