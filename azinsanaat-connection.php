@@ -397,7 +397,9 @@ if (!class_exists('Azinsanaat_Connection')) {
                 return $client;
             }
 
-            $per_page = 50;
+            $per_page = self::get_cache_per_page();
+            $per_page_fallbacks = self::get_cache_per_page_fallbacks($per_page);
+            $per_page_index = 0;
             $page = 1;
             $has_more = true;
             $total_error = null;
@@ -427,6 +429,15 @@ if (!class_exists('Azinsanaat_Connection')) {
                         continue;
                     }
 
+                    if (isset($per_page_fallbacks[$per_page_index + 1])) {
+                        $per_page_index++;
+                        $per_page = $per_page_fallbacks[$per_page_index];
+                        $page = 1;
+                        $has_more = true;
+                        $total_error = null;
+                        continue;
+                    }
+
                     $total_error = $response;
                     break;
                 }
@@ -436,6 +447,15 @@ if (!class_exists('Azinsanaat_Connection')) {
                     if ($modified_after !== '' && !$fallback_to_full) {
                         $modified_after = '';
                         $fallback_to_full = true;
+                        $page = 1;
+                        $has_more = true;
+                        $total_error = null;
+                        continue;
+                    }
+
+                    if (isset($per_page_fallbacks[$per_page_index + 1])) {
+                        $per_page_index++;
+                        $per_page = $per_page_fallbacks[$per_page_index];
                         $page = 1;
                         $has_more = true;
                         $total_error = null;
@@ -633,6 +653,40 @@ if (!class_exists('Azinsanaat_Connection')) {
             }
 
             return $timeout;
+        }
+
+        protected static function get_cache_per_page(): int
+        {
+            $per_page = (int) apply_filters('azinsanaat_connection_cache_per_page', 50);
+
+            if ($per_page < 1) {
+                return 1;
+            }
+
+            if ($per_page > 100) {
+                return 100;
+            }
+
+            return $per_page;
+        }
+
+        protected static function get_cache_per_page_fallbacks(int $per_page): array
+        {
+            $candidates = [$per_page, 25, 10];
+            $unique = [];
+
+            foreach ($candidates as $candidate) {
+                $candidate = (int) $candidate;
+                if ($candidate < 1 || $candidate > 100) {
+                    continue;
+                }
+
+                if (!in_array($candidate, $unique, true)) {
+                    $unique[] = $candidate;
+                }
+            }
+
+            return $unique;
         }
 
         protected static function sanitize_sync_interval($value): string
@@ -4136,7 +4190,12 @@ if (!class_exists('Azinsanaat_Connection')) {
             }
 
             $page = 1;
-            $per_page = 100;
+            $per_page = (int) apply_filters('azinsanaat_connection_variations_per_page', 100);
+            if ($per_page < 1) {
+                $per_page = 1;
+            } elseif ($per_page > 100) {
+                $per_page = 100;
+            }
             $variations = [];
 
             do {
