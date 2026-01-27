@@ -521,6 +521,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                 ? self::sanitize_sync_interval($input['sync_interval'])
                 : '15min';
             $output['admin_phone_numbers'] = self::sanitize_phone_numbers($input['admin_phone_numbers'] ?? []);
+            $output['request_timeout'] = self::sanitize_request_timeout($input['request_timeout'] ?? null);
             $default_connection_interval = $output['sync_interval'];
 
             $connections = [];
@@ -617,6 +618,21 @@ if (!class_exists('Azinsanaat_Connection')) {
             }
 
             return $numbers;
+        }
+
+        protected static function sanitize_request_timeout($value): int
+        {
+            $timeout = is_numeric($value) ? (int) $value : 30;
+
+            if ($timeout < 5) {
+                return 5;
+            }
+
+            if ($timeout > 120) {
+                return 120;
+            }
+
+            return $timeout;
         }
 
         protected static function sanitize_sync_interval($value): string
@@ -890,6 +906,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                 ? self::sanitize_sync_interval($raw_options['sync_interval'])
                 : '15min';
             $options['admin_phone_numbers'] = self::sanitize_phone_numbers($raw_options['admin_phone_numbers'] ?? []);
+            $options['request_timeout'] = self::sanitize_request_timeout($raw_options['request_timeout'] ?? null);
             $default_connection_interval = $options['sync_interval'];
 
             $connections = [];
@@ -1049,6 +1066,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             $connection_message = self::get_transient_message('azinsanaat_connection_status_message');
             $default_sync_interval = $options['sync_interval'] ?? '15min';
             $admin_phone_numbers = $options['admin_phone_numbers'] ?? [];
+            $request_timeout = $options['request_timeout'] ?? 30;
             $has_connections = !empty($connections);
             $option_key = self::OPTION_KEY;
             $sync_intervals = self::get_sync_intervals();
@@ -1076,6 +1094,22 @@ if (!class_exists('Azinsanaat_Connection')) {
                     <p>
                         <label for="azinsanaat-admin-phone-numbers"><?php esc_html_e('شماره‌های موبایل مدیر', 'azinsanaat-connection'); ?></label>
                         <textarea id="azinsanaat-admin-phone-numbers" name="<?php echo esc_attr($option_key); ?>[admin_phone_numbers]" rows="3" class="large-text code"><?php echo esc_textarea(implode("\n", $admin_phone_numbers)); ?></textarea>
+                    </p>
+                    <h2><?php esc_html_e('تنظیمات ارتباط', 'azinsanaat-connection'); ?></h2>
+                    <p class="description"><?php esc_html_e('مدت انتظار اتصال به وب‌سرویس را برای جلوگیری از خطاهای تایم‌اوت تنظیم کنید.', 'azinsanaat-connection'); ?></p>
+                    <p>
+                        <label for="azinsanaat-request-timeout"><?php esc_html_e('Timeout درخواست‌ها (ثانیه)', 'azinsanaat-connection'); ?></label>
+                        <input
+                            id="azinsanaat-request-timeout"
+                            type="number"
+                            min="5"
+                            max="120"
+                            step="1"
+                            class="small-text"
+                            name="<?php echo esc_attr($option_key); ?>[request_timeout]"
+                            value="<?php echo esc_attr((string) $request_timeout); ?>"
+                        >
+                        <span class="description"><?php esc_html_e('برای سرویس‌های کند مقدار بالاتری انتخاب کنید. بازه مجاز ۵ تا ۱۲۰ ثانیه است.', 'azinsanaat-connection'); ?></span>
                     </p>
                     <h2><?php esc_html_e('اتصالات وب‌سرویس', 'azinsanaat-connection'); ?></h2>
                     <p class="description"><?php esc_html_e('اطلاعات اتصال API هر فروشگاه ووکامرسی را در این بخش وارد کنید.', 'azinsanaat-connection'); ?></p>
@@ -4445,19 +4479,24 @@ if (!class_exists('Azinsanaat_Connection')) {
                 return new WP_Error('azinsanaat_missing_credentials', __('ابتدا تنظیمات اتصال را تکمیل کنید.', 'azinsanaat-connection'));
             }
 
-            return new class($connection) {
-                private $connection;
+            $options = self::get_plugin_options();
+            $timeout = $options['request_timeout'] ?? 30;
 
-                public function __construct(array $connection)
+            return new class($connection, $timeout) {
+                private $connection;
+                private $timeout;
+
+                public function __construct(array $connection, int $timeout)
                 {
                     $this->connection = $connection;
+                    $this->timeout = $timeout;
                 }
 
                 public function get(string $endpoint, array $params = [])
                 {
                     $url = $this->build_url($endpoint, $params);
                     $response = wp_remote_get($url, [
-                        'timeout' => 30,
+                        'timeout' => $this->timeout,
                         'headers' => [
                             'Accept' => 'application/json',
                         ],
