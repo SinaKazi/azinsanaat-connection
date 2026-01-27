@@ -4,6 +4,7 @@
     $(function () {
         var settings = window.AzinsanaatSettingsPage || {};
         var messages = settings.messages || {};
+        var cacheRefresh = settings.cacheRefresh || {};
         var $container = $('#azinsanaat-connections-container');
         var template = $('#azinsanaat-connection-template').html();
         var $addButton = $('#azinsanaat-add-connection');
@@ -58,6 +59,121 @@
                 event.preventDefault();
                 $(this).closest('.azinsanaat-connection-item').remove();
                 ensurePlaceholder();
+            });
+        }
+
+        function ensureCacheNotice($box) {
+            var $notice = $box.find('.azinsanaat-cache-refresh-notice');
+            if ($notice.length) {
+                return $notice;
+            }
+
+            $notice = $('<div/>', {
+                'class': 'notice inline azinsanaat-cache-refresh-notice',
+            }).append($('<p/>'));
+
+            $box.append($notice);
+
+            return $notice;
+        }
+
+        function setCacheNotice($box, type, message) {
+            var $notice = ensureCacheNotice($box);
+            var $message = $notice.find('p');
+
+            $notice.removeClass('notice-success notice-error notice-info notice-warning')
+                .addClass('notice-' + type);
+
+            $message.text(message);
+        }
+
+        function ensureCacheSpinner($box) {
+            var $spinner = $box.find('.azinsanaat-cache-refresh-spinner');
+            if ($spinner.length) {
+                return $spinner;
+            }
+
+            $spinner = $('<span/>', {
+                'class': 'spinner azinsanaat-cache-refresh-spinner',
+            });
+
+            $box.find('.azinsanaat-cache-refresh-actions').append($spinner);
+
+            return $spinner;
+        }
+
+        function runCacheRefresh($button, connectionId) {
+            var $box = $button.closest('.azinsanaat-connection-cache');
+            var $spinner = ensureCacheSpinner($box);
+            var pollInterval = cacheRefresh.pollInterval || 800;
+
+            $button.prop('disabled', true).attr('aria-disabled', 'true');
+            $spinner.addClass('is-active');
+
+            function finalize() {
+                $spinner.removeClass('is-active');
+                $button.prop('disabled', false).attr('aria-disabled', 'false');
+            }
+
+            function makeRequest() {
+                $.post(cacheRefresh.ajaxUrl, {
+                    action: 'azinsanaat_refresh_cache',
+                    connection_id: connectionId,
+                    nonce: cacheRefresh.nonce
+                })
+                    .done(function (response) {
+                        if (!response || !response.success) {
+                            var errorMessage = cacheRefresh.messages && cacheRefresh.messages.error
+                                ? cacheRefresh.messages.error
+                                : 'خطا در به‌روزرسانی کش.';
+
+                            if (response && response.data && response.data.message) {
+                                errorMessage = response.data.message;
+                            }
+
+                            setCacheNotice($box, 'error', errorMessage);
+                            finalize();
+                            return;
+                        }
+
+                        var data = response.data || {};
+                        if (data.status === 'in_progress') {
+                            var progressMessage = data.message || (cacheRefresh.messages && cacheRefresh.messages.inProgress) || '';
+                            if (progressMessage) {
+                                setCacheNotice($box, 'info', progressMessage);
+                            }
+                            window.setTimeout(makeRequest, pollInterval);
+                            return;
+                        }
+
+                        var doneMessage = data.message || (cacheRefresh.messages && cacheRefresh.messages.done) || '';
+                        if (doneMessage) {
+                            setCacheNotice($box, data.type || 'success', doneMessage);
+                        }
+                        finalize();
+                    })
+                    .fail(function () {
+                        var errorMessage = cacheRefresh.messages && cacheRefresh.messages.error
+                            ? cacheRefresh.messages.error
+                            : 'خطا در به‌روزرسانی کش.';
+                        setCacheNotice($box, 'error', errorMessage);
+                        finalize();
+                    });
+            }
+
+            makeRequest();
+        }
+
+        if (cacheRefresh.ajaxUrl && cacheRefresh.nonce) {
+            $(document).on('click', '.azinsanaat-cache-refresh-actions button', function (event) {
+                var connectionId = $(this).data('connectionId');
+
+                if (!connectionId) {
+                    return;
+                }
+
+                event.preventDefault();
+                runCacheRefresh($(this), connectionId);
             });
         }
 
