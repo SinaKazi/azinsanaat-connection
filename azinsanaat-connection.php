@@ -67,6 +67,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             add_action('wp_ajax_azinsanaat_connect_product_variations', [__CLASS__, 'ajax_connect_product_variations']);
             add_action('wp_ajax_azinsanaat_connect_simple_variation', [__CLASS__, 'ajax_connect_simple_variation']);
             add_action('wp_ajax_azinsanaat_import_product', [__CLASS__, 'ajax_import_product']);
+            add_action('wp_ajax_azinsanaat_refresh_cache', [__CLASS__, 'handle_refresh_cache_ajax']);
         }
 
         /**
@@ -501,6 +502,188 @@ if (!class_exists('Azinsanaat_Connection')) {
             }
 
             return self::refresh_remote_products_cache($connection_id, $client);
+        }
+
+        protected static function get_cache_refresh_state_key(string $connection_id): string
+        {
+            return 'azinsanaat_cache_refresh_state_' . sanitize_key($connection_id);
+        }
+
+        protected static function get_cache_refresh_state(string $connection_id): array
+        {
+            $state = get_transient(self::get_cache_refresh_state_key($connection_id));
+
+            return is_array($state) ? $state : [];
+        }
+
+        protected static function set_cache_refresh_state(string $connection_id, array $state): void
+        {
+            set_transient(self::get_cache_refresh_state_key($connection_id), $state, 10 * MINUTE_IN_SECONDS);
+        }
+
+        protected static function clear_cache_refresh_state(string $connection_id): void
+        {
+            delete_transient(self::get_cache_refresh_state_key($connection_id));
+        }
+
+        protected static function build_cache_refresh_progress_message(int $page, int $per_page): string
+        {
+            return sprintf(
+                __('در حال به‌روزرسانی کش محصولات (صفحه %1$d با %2$d محصول در هر صفحه)...', 'azinsanaat-connection'),
+                $page,
+                $per_page
+            );
+        }
+
+        protected static function refresh_remote_products_cache_chunk(string $connection_id, array $state)
+        {
+            $client = self::get_api_client($connection_id);
+            if (is_wp_error($client)) {
+                self::notify_cache_error($connection_id, $client->get_error_message());
+                return $client;
+            }
+
+            $per_page = isset($state['per_page']) ? (int) $state['per_page'] : self::get_cache_per_page();
+            if ($per_page < 1) {
+                $per_page = self::get_cache_per_page();
+            }
+
+            $per_page_fallbacks = self::get_cache_per_page_fallbacks($per_page);
+            $per_page_index = isset($state['per_page_index']) ? (int) $state['per_page_index'] : 0;
+            if ($per_page_index < 0) {
+                $per_page_index = 0;
+            }
+
+            $page = isset($state['page']) ? (int) $state['page'] : 1;
+            if ($page < 1) {
+                $page = 1;
+            }
+
+            $modified_after = isset($state['modified_after']) ? (string) $state['modified_after'] : self::get_incremental_cache_cursor($connection_id);
+            $fallback_to_full = !empty($state['fallback_to_full']);
+
+            $request_args = [
+                'per_page' => $per_page,
+                'page'     => $page,
+                'status'   => 'publish',
+            ];
+
+            if ($modified_after !== '') {
+                $request_args['modified_after'] = $modified_after;
+            }
+
+            $response = $client->get('products', $request_args);
+
+            if (is_wp_error($response)) {
+                if ($modified_after !== '' && !$fallback_to_full) {
+                    return [
+                        'status' => 'in_progress',
+                        'state'  => [
+                            'page'             => 1,
+                            'per_page'         => $per_page,
+                            'per_page_index'   => $per_page_index,
+                            'modified_after'   => '',
+                            'fallback_to_full' => true,
+                        ],
+                        'message' => __('در حال تلاش مجدد برای دریافت کامل کش محصولات...', 'azinsanaat-connection'),
+                    ];
+                }
+
+                if (isset($per_page_fallbacks[$per_page_index + 1])) {
+                    $per_page_index++;
+                    $per_page = $per_page_fallbacks[$per_page_index];
+
+                    return [
+                        'status' => 'in_progress',
+                        'state'  => [
+                            'page'             => 1,
+                            'per_page'         => $per_page,
+                            'per_page_index'   => $per_page_index,
+                            'modified_after'   => $modified_after,
+                            'fallback_to_full' => $fallback_to_full,
+                        ],
+                        'message' => __('در حال کاهش تعداد محصولات هر صفحه برای ادامه به‌روزرسانی کش...', 'azinsanaat-connection'),
+                    ];
+                }
+
+                self::notify_cache_error($connection_id, $response->get_error_message());
+                return $response;
+            }
+
+            $status = wp_remote_retrieve_response_code($response);
+            if ($status < 200 || $status >= 300) {
+                if ($modified_after !== '' && !$fallback_to_full) {
+                    return [
+                        'status' => 'in_progress',
+                        'state'  => [
+                            'page'             => 1,
+                            'per_page'         => $per_page,
+                            'per_page_index'   => $per_page_index,
+                            'modified_after'   => '',
+                            'fallback_to_full' => true,
+                        ],
+                        'message' => __('در حال تلاش مجدد برای دریافت کامل کش محصولات...', 'azinsanaat-connection'),
+                    ];
+                }
+
+                if (isset($per_page_fallbacks[$per_page_index + 1])) {
+                    $per_page_index++;
+                    $per_page = $per_page_fallbacks[$per_page_index];
+
+                    return [
+                        'status' => 'in_progress',
+                        'state'  => [
+                            'page'             => 1,
+                            'per_page'         => $per_page,
+                            'per_page_index'   => $per_page_index,
+                            'modified_after'   => $modified_after,
+                            'fallback_to_full' => $fallback_to_full,
+                        ],
+                        'message' => __('در حال کاهش تعداد محصولات هر صفحه برای ادامه به‌روزرسانی کش...', 'azinsanaat-connection'),
+                    ];
+                }
+
+                $body = json_decode(wp_remote_retrieve_body($response), true);
+                $message = $body['message'] ?? sprintf(__('پاسخ نامعتبر از سرور (کد: %s).', 'azinsanaat-connection'), $status);
+                $error = new WP_Error('azinsanaat_cache_products_failed', $message);
+                self::notify_cache_error($connection_id, $error->get_error_message());
+
+                return $error;
+            }
+
+            $products = json_decode(wp_remote_retrieve_body($response), true);
+            if (!is_array($products) || empty($products)) {
+                return [
+                    'status' => 'done',
+                ];
+            }
+
+            foreach ($products as $product) {
+                $remote_id = isset($product['id']) ? (int) $product['id'] : 0;
+                if (!$remote_id) {
+                    continue;
+                }
+
+                self::upsert_remote_cache($connection_id, $remote_id, $product);
+            }
+
+            if (count($products) === $per_page) {
+                return [
+                    'status' => 'in_progress',
+                    'state'  => [
+                        'page'             => $page + 1,
+                        'per_page'         => $per_page,
+                        'per_page_index'   => $per_page_index,
+                        'modified_after'   => $modified_after,
+                        'fallback_to_full' => $fallback_to_full,
+                    ],
+                    'message' => self::build_cache_refresh_progress_message($page + 1, $per_page),
+                ];
+            }
+
+            return [
+                'status' => 'done',
+            ];
         }
 
         public static function ensure_plugin_capability(): void
@@ -1273,6 +1456,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                                                 type="submit"
                                                 class="button button-secondary"
                                                 form="<?php echo esc_attr($refresh_form_id); ?>"
+                                                data-connection-id="<?php echo esc_attr($connection['id']); ?>"
                                             >
                                                 <?php esc_html_e('به‌روزرسانی دستی کش محصولات', 'azinsanaat-connection'); ?>
                                             </button>
@@ -1470,6 +1654,11 @@ if (!class_exists('Azinsanaat_Connection')) {
                         margin-top: 8px;
                         padding: 8px 12px;
                     }
+
+                    .azinsanaat-cache-refresh-spinner {
+                        float: none;
+                        margin: 0 0 0 6px;
+                    }
                 </style>
             </div>
             <?php
@@ -1495,6 +1684,16 @@ if (!class_exists('Azinsanaat_Connection')) {
                     [
                         'messages' => [
                             'noConnections' => __('هیچ اتصالی ثبت نشده است. روی «افزودن اتصال جدید» کلیک کنید.', 'azinsanaat-connection'),
+                        ],
+                        'cacheRefresh' => [
+                            'ajaxUrl'      => admin_url('admin-ajax.php'),
+                            'nonce'        => wp_create_nonce(self::NONCE_ACTION_REFRESH_CACHE),
+                            'pollInterval' => 800,
+                            'messages'     => [
+                                'inProgress' => __('در حال به‌روزرسانی کش محصولات...', 'azinsanaat-connection'),
+                                'done'       => __('کش محصولات با موفقیت به‌روزرسانی شد.', 'azinsanaat-connection'),
+                                'error'      => __('به‌روزرسانی کش محصولات ناموفق بود.', 'azinsanaat-connection'),
+                            ],
                         ],
                     ]
                 );
@@ -1704,6 +1903,69 @@ if (!class_exists('Azinsanaat_Connection')) {
 
             wp_safe_redirect(self::get_settings_page_url());
             exit;
+        }
+
+        public static function handle_refresh_cache_ajax(): void
+        {
+            if (!self::current_user_can_manage_plugin()) {
+                wp_send_json_error(['message' => __('شما اجازه دسترسی ندارید.', 'azinsanaat-connection')], 403);
+            }
+
+            check_ajax_referer(self::NONCE_ACTION_REFRESH_CACHE, 'nonce');
+
+            $connection_id = isset($_POST['connection_id']) ? sanitize_key(wp_unslash($_POST['connection_id'])) : '';
+            if (!$connection_id) {
+                wp_send_json_error(['message' => __('شناسه اتصال معتبر نیست.', 'azinsanaat-connection')], 400);
+            }
+
+            $connections = self::get_connections_indexed();
+            if (!isset($connections[$connection_id])) {
+                wp_send_json_error(['message' => __('اتصال انتخاب‌شده یافت نشد.', 'azinsanaat-connection')], 404);
+            }
+
+            $state = self::get_cache_refresh_state($connection_id);
+            if (empty($state)) {
+                $state = [
+                    'page'             => 1,
+                    'per_page'         => self::get_cache_per_page(),
+                    'per_page_index'   => 0,
+                    'modified_after'   => self::get_incremental_cache_cursor($connection_id),
+                    'fallback_to_full' => false,
+                ];
+            }
+
+            $result = self::refresh_remote_products_cache_chunk($connection_id, $state);
+            if (is_wp_error($result)) {
+                self::clear_cache_refresh_state($connection_id);
+                wp_send_json_error(['message' => $result->get_error_message()], 500);
+            }
+
+            if (($result['status'] ?? '') === 'done') {
+                self::clear_cache_refresh_state($connection_id);
+
+                $last_synced = self::get_remote_cache_last_synced_at($connection_id);
+                $message = $last_synced
+                    ? sprintf(__('کش محصولات با موفقیت به‌روزرسانی شد. زمان به‌روزرسانی: %s', 'azinsanaat-connection'), $last_synced)
+                    : __('کش محصولات با موفقیت به‌روزرسانی شد.', 'azinsanaat-connection');
+
+                self::set_transient_message('azinsanaat_connection_cache_status', [
+                    'type'          => 'success',
+                    'connection_id' => $connection_id,
+                    'message'       => $message,
+                ]);
+
+                wp_send_json_success([
+                    'status'  => 'done',
+                    'type'    => 'success',
+                    'message' => $message,
+                ]);
+            }
+
+            self::set_cache_refresh_state($connection_id, $result['state'] ?? $state);
+            wp_send_json_success([
+                'status'  => 'in_progress',
+                'message' => $result['message'] ?? self::build_cache_refresh_progress_message((int) ($state['page'] ?? 1), (int) ($state['per_page'] ?? self::get_cache_per_page())),
+            ]);
         }
 
         /**
