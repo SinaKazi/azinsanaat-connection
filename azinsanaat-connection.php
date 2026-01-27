@@ -222,8 +222,10 @@ if (!class_exists('Azinsanaat_Connection')) {
 
             $table = self::get_remote_cache_table_name();
             $connection_id = sanitize_key($connection_id);
-            $encoded_product = wp_json_encode($product_data);
-            $encoded_variations = !empty($variations) ? wp_json_encode($variations) : '';
+            $filtered_product_data = self::filter_remote_product_cache_payload($product_data);
+            $filtered_variations = self::filter_remote_variations_cache_payload($variations);
+            $encoded_product = wp_json_encode($filtered_product_data);
+            $encoded_variations = !empty($filtered_variations) ? wp_json_encode($filtered_variations) : '';
             $stock_status = isset($product_data['stock_status']) ? sanitize_text_field((string) $product_data['stock_status']) : '';
             $stock_quantity = isset($product_data['stock_quantity']) && is_numeric($product_data['stock_quantity'])
                 ? (int) $product_data['stock_quantity']
@@ -243,6 +245,8 @@ if (!class_exists('Azinsanaat_Connection')) {
                 ],
                 ['%s', '%d', '%s', '%s', '%s', '%s', '%s']
             );
+
+            self::maybe_prune_remote_cache($connection_id);
         }
 
         protected static function get_cached_remote_product(string $connection_id, int $remote_id, bool $normalize = true): ?array
@@ -284,6 +288,106 @@ if (!class_exists('Azinsanaat_Connection')) {
                 'variations' => $variations,
                 'synced_at'  => $row['synced_at'] ?? '',
             ];
+        }
+
+        protected static function filter_remote_product_cache_payload(array $product_data): array
+        {
+            $allowed_keys = [
+                'id',
+                'name',
+                'sku',
+                'type',
+                'price',
+                'regular_price',
+                'sale_price',
+                'stock_status',
+                'stock_quantity',
+                'manage_stock',
+                'total_sales',
+                'permalink',
+                'variations',
+            ];
+
+            $filtered = array_intersect_key($product_data, array_flip($allowed_keys));
+
+            return apply_filters('azinsanaat_connection_cache_product_payload', $filtered, $product_data);
+        }
+
+        protected static function filter_remote_variations_cache_payload(array $variations): array
+        {
+            if (empty($variations)) {
+                return [];
+            }
+
+            $allowed_keys = [
+                'id',
+                'price',
+                'regular_price',
+                'sale_price',
+                'stock_status',
+                'stock_quantity',
+                'manage_stock',
+                'attributes',
+                'sku',
+            ];
+
+            $filtered = array_values(array_map(function ($variation) use ($allowed_keys) {
+                if (!is_array($variation)) {
+                    return [];
+                }
+
+                return array_intersect_key($variation, array_flip($allowed_keys));
+            }, $variations));
+
+            return apply_filters('azinsanaat_connection_cache_variations_payload', $filtered, $variations);
+        }
+
+        protected static function maybe_prune_remote_cache(string $connection_id): void
+        {
+            static $pruned_connections = [];
+            $connection_id = sanitize_key($connection_id);
+
+            if ($connection_id === '' || isset($pruned_connections[$connection_id])) {
+                return;
+            }
+
+            $limit = (int) apply_filters('azinsanaat_connection_cache_max_rows', 5000, $connection_id);
+            if ($limit <= 0) {
+                return;
+            }
+
+            global $wpdb;
+            $table = self::get_remote_cache_table_name();
+            $count = (int) $wpdb->get_var(
+                $wpdb->prepare(
+                    "SELECT COUNT(*) FROM {$table} WHERE connection_id = %s",
+                    $connection_id
+                )
+            );
+
+            if ($count <= $limit) {
+                $pruned_connections[$connection_id] = true;
+                return;
+            }
+
+            $offset = $limit;
+            $wpdb->query(
+                $wpdb->prepare(
+                    "DELETE FROM {$table}
+                    WHERE id IN (
+                        SELECT id FROM (
+                            SELECT id FROM {$table}
+                            WHERE connection_id = %s
+                            ORDER BY synced_at DESC, id DESC
+                            LIMIT %d, 18446744073709551615
+                        ) as prune_ids
+                    )",
+                    $connection_id,
+                    $offset
+                )
+            );
+
+            $pruned_connections[$connection_id] = true;
         }
 
         protected static function get_cached_products_for_connection(string $connection_id, string $stock_filter = '', string $normalized_search_query = ''): array
@@ -3019,7 +3123,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             }
 
             self::add_import_step(__('اتصال به وب‌سرویس برقرار شد. در حال دریافت اطلاعات محصول...', 'azinsanaat-connection'));
-            $payload = self::get_remote_product_payload($product_id, $connection_id, $client);
+            $payload = self::get_remote_product_payload($product_id, $connection_id, $client, true);
             if (is_wp_error($payload)) {
                 self::add_import_step(__('دریافت اطلاعات محصول از وب‌سرویس با خطا مواجه شد.', 'azinsanaat-connection'));
                 return $payload;
@@ -3503,12 +3607,15 @@ if (!class_exists('Azinsanaat_Connection')) {
             return $output;
         }
 
-        protected static function get_remote_product_payload(int $remote_id, string $connection_id, $client = null)
+        protected static function get_remote_product_payload(int $remote_id, string $connection_id, $client = null, bool $force_remote = false)
         {
             $connection_id = sanitize_key($connection_id);
-            $cached = self::get_cached_remote_product($connection_id, $remote_id);
-            if ($cached && !empty($cached['product'])) {
-                return $cached;
+            $cached = null;
+            if (!$force_remote) {
+                $cached = self::get_cached_remote_product($connection_id, $remote_id);
+                if ($cached && !empty($cached['product'])) {
+                    return $cached;
+                }
             }
 
             if ($client === null) {
