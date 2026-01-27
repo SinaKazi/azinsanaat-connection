@@ -412,6 +412,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                     'per_page' => $per_page,
                     'page'     => $page,
                     'status'   => 'publish',
+                    'stock_status' => 'instock',
                 ];
 
                 if ($modified_after !== '') {
@@ -566,6 +567,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                 'per_page' => $per_page,
                 'page'     => $page,
                 'status'   => 'publish',
+                'stock_status' => 'instock',
             ];
 
             if ($modified_after !== '') {
@@ -3350,6 +3352,14 @@ if (!class_exists('Azinsanaat_Connection')) {
             $decoded = json_decode(wp_remote_retrieve_body($response), true);
 
             if ($status_code < 200 || $status_code >= 300) {
+                if ($status_code === 404 || $status_code === 410) {
+                    return new WP_Error(
+                        'azinsanaat_remote_not_found',
+                        __('محصول در وب‌سرویس یافت نشد.', 'azinsanaat-connection'),
+                        ['status_code' => $status_code]
+                    );
+                }
+
                 $message = is_array($decoded) && isset($decoded['message'])
                     ? $decoded['message']
                     : sprintf(__('پاسخ نامعتبر از سرور (کد: %s).', 'azinsanaat-connection'), $status_code);
@@ -4142,6 +4152,18 @@ if (!class_exists('Azinsanaat_Connection')) {
 
             $payload = self::get_remote_product_payload($remote_id, $connection_id, $client);
             if (is_wp_error($payload)) {
+                if ($payload->get_error_code() === 'azinsanaat_remote_not_found') {
+                    self::apply_missing_remote_product_state($product_id);
+                    update_post_meta($product_id, self::META_LAST_SYNC, current_time('timestamp'));
+                    update_post_meta($product_id, self::META_REMOTE_CONNECTION, $connection_id);
+
+                    if (function_exists('wc_delete_product_transients')) {
+                        wc_delete_product_transients($product_id);
+                    }
+
+                    return true;
+                }
+
                 return $payload;
             }
 
@@ -4229,6 +4251,19 @@ if (!class_exists('Azinsanaat_Connection')) {
 
             update_post_meta($product_id, self::META_REMOTE_CONNECTION, $connection_id);
             return true;
+        }
+
+        protected static function apply_missing_remote_product_state(int $product_id): void
+        {
+            delete_post_meta($product_id, '_regular_price');
+            delete_post_meta($product_id, '_sale_price');
+            delete_post_meta($product_id, '_price');
+            update_post_meta($product_id, '_stock_status', 'outofstock');
+
+            $manage_stock = get_post_meta($product_id, '_manage_stock', true);
+            if ($manage_stock === 'yes') {
+                update_post_meta($product_id, '_stock', 0);
+            }
         }
 
         protected static function sync_variable_children(int $product_id, int $remote_product_id, $client, string $connection_id, array $remote_variations = [])
