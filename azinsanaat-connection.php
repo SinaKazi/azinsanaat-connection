@@ -1728,22 +1728,31 @@ if (!class_exists('Azinsanaat_Connection')) {
                     true
                 );
 
-                        wp_localize_script(
-                            'azinsanaat-products-page',
-                            'AzinsanaatProductsPage',
-                            [
-                                'ajaxUrl'  => admin_url('admin-ajax.php'),
-                                'messages' => [
-                                    'genericError' => __('خطا در پردازش درخواست. لطفاً دوباره تلاش کنید.', 'azinsanaat-connection'),
-                                    'networkError' => __('خطایی در ارتباط با سرور رخ داد.', 'azinsanaat-connection'),
-                                    'editLinkLabel'=> __('مشاهده پیش‌نویس', 'azinsanaat-connection'),
-                                    'missingAttributes'=> __('تکمیل ویژگی‌های متغیر انتخاب‌شده ضروری است.', 'azinsanaat-connection'),
-                                    'selectAtLeastOneVariation'=> __('انتخاب حداقل یک متغیر برای ساخت یا دریافت محصول ضروری است.', 'azinsanaat-connection'),
-                                    'startingImport'=> __('در حال دریافت اطلاعات محصول از وب‌سرویس...', 'azinsanaat-connection'),
-                                ],
-                            ]
-                        );
-                    }
+                wp_localize_script(
+                    'azinsanaat-products-page',
+                    'AzinsanaatProductsPage',
+                    [
+                        'ajaxUrl'  => admin_url('admin-ajax.php'),
+                        'cache'    => [
+                            'pollInterval' => 800,
+                        ],
+                        'messages' => [
+                            'genericError' => __('خطا در پردازش درخواست. لطفاً دوباره تلاش کنید.', 'azinsanaat-connection'),
+                            'networkError' => __('خطایی در ارتباط با سرور رخ داد.', 'azinsanaat-connection'),
+                            'editLinkLabel'=> __('مشاهده پیش‌نویس', 'azinsanaat-connection'),
+                            'missingAttributes'=> __('تکمیل ویژگی‌های متغیر انتخاب‌شده ضروری است.', 'azinsanaat-connection'),
+                            'selectAtLeastOneVariation'=> __('انتخاب حداقل یک متغیر برای ساخت یا دریافت محصول ضروری است.', 'azinsanaat-connection'),
+                            'startingImport'=> __('در حال دریافت اطلاعات محصول از وب‌سرویس...', 'azinsanaat-connection'),
+                            'cacheChecking' => __('در حال بررسی وضعیت کش...', 'azinsanaat-connection'),
+                            'cacheExists' => __('داده‌های کش برای این اتصال موجود است.', 'azinsanaat-connection'),
+                            'cacheMissing' => __('داده‌ای در کش این اتصال وجود ندارد. در حال دریافت اطلاعات از وب‌سرویس...', 'azinsanaat-connection'),
+                            'cacheRefreshError' => __('به‌روزرسانی کش ناموفق بود.', 'azinsanaat-connection'),
+                            'cacheRefreshDone' => __('دریافت اطلاعات از وب‌سرویس تکمیل شد.', 'azinsanaat-connection'),
+                            'cacheReloading' => __('در حال بارگذاری مجدد صفحه...', 'azinsanaat-connection'),
+                        ],
+                    ]
+                );
+            }
 
             if (!in_array($hook, ['post.php', 'post-new.php'], true)) {
                 return;
@@ -2000,9 +2009,12 @@ if (!class_exists('Azinsanaat_Connection')) {
             $selected_connection_id = $selected_connection['id'];
             $selected_connection_label = $selected_connection['label'];
 
+            $cached_products_count = self::get_cached_product_count($selected_connection_id);
+            $cache_available = $cached_products_count > 0;
             $client = self::get_api_client($selected_connection_id);
             $products = [];
             $error_message = '';
+            $client_error_message = '';
             $current_page = isset($_GET['paged']) ? max(1, absint($_GET['paged'])) : 1;
             $per_page = 20;
             $stock_filter = isset($_GET['stock_status']) ? sanitize_text_field(wp_unslash($_GET['stock_status'])) : '';
@@ -2059,86 +2071,87 @@ if (!class_exists('Azinsanaat_Connection')) {
             $selected_connection_connected_count = $connected_products_count_by_connection[$selected_connection_id] ?? 0;
 
             if (is_wp_error($client)) {
-                $error_message = $client->get_error_message();
-            } else {
-                $cache_result = self::ensure_products_cache($selected_connection_id, $client);
-                if (is_wp_error($cache_result)) {
-                    $error_message = $cache_result->get_error_message();
-                } else {
-                    $cached_products = self::get_cached_products_for_connection($selected_connection_id, $stock_filter, $normalized_search_query);
-                    $filtered_products = [];
-                    $connected_products = [];
-
-                    if (!empty($cached_products)) {
-                        usort($cached_products, function ($item_a, $item_b) {
-                            $priority = [
-                                'instock'     => 0,
-                                'onbackorder' => 1,
-                                'outofstock'  => 2,
-                            ];
-
-                            $a_status = isset($item_a['stock_status']) ? (string) $item_a['stock_status'] : '';
-                            $b_status = isset($item_b['stock_status']) ? (string) $item_b['stock_status'] : '';
-                            $a_priority = $priority[$a_status] ?? 3;
-                            $b_priority = $priority[$b_status] ?? 3;
-
-                            if ($a_priority === $b_priority) {
-                                return 0;
-                            }
-
-                            return ($a_priority < $b_priority) ? -1 : 1;
-                        });
-
-                        foreach ($cached_products as $product) {
-                            $remote_product_id = isset($product['id']) ? (int) $product['id'] : 0;
-                            $connection_lookup_key = $remote_product_id ? $selected_connection_id . '|' . $remote_product_id : '';
-
-                            if ($connection_lookup_key && isset($connected_remote_ids[$connection_lookup_key])) {
-                                $connected_products[] = $product;
-                            } else {
-                                $filtered_products[] = $product;
-                            }
-                        }
-                    }
-
-                    $total_remote_products_count = self::get_cached_product_count($selected_connection_id);
-
-                    usort($filtered_products, function ($product_a, $product_b) {
-                        $a_sales = isset($product_a['total_sales']) ? (int) $product_a['total_sales'] : 0;
-                        $b_sales = isset($product_b['total_sales']) ? (int) $product_b['total_sales'] : 0;
-
-                        if ($a_sales === $b_sales) {
-                            return 0;
-                        }
-
-                        return ($a_sales < $b_sales) ? 1 : -1;
-                    });
-
-                    usort($connected_products, function ($product_a, $product_b) {
-                        $a_sales = isset($product_a['total_sales']) ? (int) $product_a['total_sales'] : 0;
-                        $b_sales = isset($product_b['total_sales']) ? (int) $product_b['total_sales'] : 0;
-
-                        if ($a_sales === $b_sales) {
-                            return 0;
-                        }
-
-                        return ($a_sales < $b_sales) ? 1 : -1;
-                    });
-
-                    if (!empty($connected_products)) {
-                        $filtered_products = array_merge($filtered_products, $connected_products);
-                    }
-
-                    $available_remote_products_count = count($filtered_products);
-                    $total_pages = max(1, (int) ceil($available_remote_products_count / $per_page));
-
-                    if ($current_page > $total_pages) {
-                        $current_page = $total_pages;
-                    }
-
-                    $offset = ($current_page - 1) * $per_page;
-                    $products = array_slice($filtered_products, $offset, $per_page);
+                $client_error_message = $client->get_error_message();
+                if (!$cache_available) {
+                    $error_message = $client_error_message;
                 }
+                $client = null;
+            }
+
+            if ($cache_available) {
+                $cached_products = self::get_cached_products_for_connection($selected_connection_id, $stock_filter, $normalized_search_query);
+                $filtered_products = [];
+                $connected_products = [];
+
+                if (!empty($cached_products)) {
+                    usort($cached_products, function ($item_a, $item_b) {
+                        $priority = [
+                            'instock'     => 0,
+                            'onbackorder' => 1,
+                            'outofstock'  => 2,
+                        ];
+
+                        $a_status = isset($item_a['stock_status']) ? (string) $item_a['stock_status'] : '';
+                        $b_status = isset($item_b['stock_status']) ? (string) $item_b['stock_status'] : '';
+                        $a_priority = $priority[$a_status] ?? 3;
+                        $b_priority = $priority[$b_status] ?? 3;
+
+                        if ($a_priority === $b_priority) {
+                            return 0;
+                        }
+
+                        return ($a_priority < $b_priority) ? -1 : 1;
+                    });
+
+                    foreach ($cached_products as $product) {
+                        $remote_product_id = isset($product['id']) ? (int) $product['id'] : 0;
+                        $connection_lookup_key = $remote_product_id ? $selected_connection_id . '|' . $remote_product_id : '';
+
+                        if ($connection_lookup_key && isset($connected_remote_ids[$connection_lookup_key])) {
+                            $connected_products[] = $product;
+                        } else {
+                            $filtered_products[] = $product;
+                        }
+                    }
+                }
+
+                $total_remote_products_count = $cached_products_count;
+
+                usort($filtered_products, function ($product_a, $product_b) {
+                    $a_sales = isset($product_a['total_sales']) ? (int) $product_a['total_sales'] : 0;
+                    $b_sales = isset($product_b['total_sales']) ? (int) $product_b['total_sales'] : 0;
+
+                    if ($a_sales === $b_sales) {
+                        return 0;
+                    }
+
+                    return ($a_sales < $b_sales) ? 1 : -1;
+                });
+
+                usort($connected_products, function ($product_a, $product_b) {
+                    $a_sales = isset($product_a['total_sales']) ? (int) $product_a['total_sales'] : 0;
+                    $b_sales = isset($product_b['total_sales']) ? (int) $product_b['total_sales'] : 0;
+
+                    if ($a_sales === $b_sales) {
+                        return 0;
+                    }
+
+                    return ($a_sales < $b_sales) ? 1 : -1;
+                });
+
+                if (!empty($connected_products)) {
+                    $filtered_products = array_merge($filtered_products, $connected_products);
+                }
+
+                $available_remote_products_count = count($filtered_products);
+                $total_pages = max(1, (int) ceil($available_remote_products_count / $per_page));
+
+                if ($current_page > $total_pages) {
+                    $current_page = $total_pages;
+                }
+
+                $offset = ($current_page - 1) * $per_page;
+                $products = array_slice($filtered_products, $offset, $per_page);
             }
 
             if (!$error_message && !empty($products)) {
@@ -2164,6 +2177,18 @@ if (!class_exists('Azinsanaat_Connection')) {
                         if (!empty($cached_variations)) {
                             $preloaded_variations[$remote_product_id] = $cached_variations;
                         } else {
+                            if (!$client) {
+                                $client = self::get_api_client($selected_connection_id);
+                                if (is_wp_error($client)) {
+                                    $error_message = $client->get_error_message();
+                                    $product_variation_details[$remote_product_id] = [
+                                        'error'      => $client->get_error_message(),
+                                        'variations' => [],
+                                    ];
+                                    continue;
+                                }
+                            }
+
                             $variations_response = self::fetch_remote_variations($client, $remote_product_id, $selected_connection_id, $product_data);
 
                             if (is_wp_error($variations_response)) {
@@ -2244,11 +2269,30 @@ if (!class_exists('Azinsanaat_Connection')) {
 
             $bulk_creation_url = self::get_bulk_product_creation_url($selected_connection_id);
             $available_import_sections = self::get_available_import_sections();
+            $cache_status_class = $cache_available ? 'notice-success' : 'notice-warning';
+            $cache_status_message = $cache_available
+                ? __('داده‌های کش برای این اتصال موجود است.', 'azinsanaat-connection')
+                : __('داده‌ای در کش این اتصال وجود ندارد. در حال دریافت اطلاعات از وب‌سرویس...', 'azinsanaat-connection');
+
+            if ($error_message) {
+                $cache_status_class = 'notice-error';
+                $cache_status_message = $error_message;
+            }
 
             ?>
             <div class="wrap azinsanaat-products-page">
                 <h1><?php esc_html_e('محصولات وب‌سرویس آذین صنعت', 'azinsanaat-connection'); ?></h1>
                 <p class="description"><?php echo esc_html(sprintf(__('اتصال فعال: %s', 'azinsanaat-connection'), $selected_connection_label)); ?></p>
+                <div
+                    class="notice azinsanaat-cache-status <?php echo esc_attr($cache_status_class); ?>"
+                    data-cache-exists="<?php echo $cache_available ? '1' : '0'; ?>"
+                    data-connection-id="<?php echo esc_attr($selected_connection_id); ?>"
+                    data-refresh-nonce="<?php echo esc_attr(wp_create_nonce(self::NONCE_ACTION_REFRESH_CACHE)); ?>"
+                    data-client-error="<?php echo esc_attr($client_error_message); ?>"
+                >
+                    <p><?php echo esc_html($cache_status_message); ?></p>
+                </div>
+                <div class="azinsanaat-cache-progress" aria-live="polite"></div>
                 <?php if ($bulk_creation_url) : ?>
                     <p class="azinsanaat-products-actions">
                         <a class="button button-primary" href="<?php echo esc_url($bulk_creation_url); ?>">
@@ -2331,7 +2375,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                     <?php submit_button(__('اعمال فیلتر', 'azinsanaat-connection'), 'secondary', '', false); ?>
                     <p class="description azinsanaat-products-search-description"><?php esc_html_e('برای اعمال جستجو عبارت مورد نظر را وارد کرده و دکمه اعمال فیلتر را بزنید.', 'azinsanaat-connection'); ?></p>
                 </form>
-                <?php if (!$error_message && empty($products)) : ?>
+                <?php if (!$error_message && empty($products) && $cache_available) : ?>
                     <p><?php esc_html_e('هیچ محصولی یافت نشد.', 'azinsanaat-connection'); ?></p>
                 <?php elseif (!$error_message) : ?>
                     <table class="widefat striped azinsanaat-products-table">
