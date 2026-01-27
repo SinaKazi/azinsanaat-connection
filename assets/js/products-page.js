@@ -166,6 +166,69 @@
         requestChunk();
     }
 
+    function parsePageFromLink(href) {
+        if (!href) {
+            return 0;
+        }
+
+        try {
+            var url = new URL(href, window.location.href);
+            var pageParam = url.searchParams.get('paged');
+            if (pageParam) {
+                return parseInt(pageParam, 10) || 0;
+            }
+        } catch (error) {
+            // Fallback to regex parsing when URL constructor fails.
+        }
+
+        var match = href.match(/(?:\\?|&)paged=(\\d+)/);
+        return match ? parseInt(match[1], 10) || 0 : 0;
+    }
+
+    function loadProducts(connectionId, page, searchQuery) {
+        var $container = $('.azinsanaat-products-dynamic');
+        var messages = settings.messages || {};
+
+        if (!$container.length) {
+            return;
+        }
+
+        if (!connectionId) {
+            $container.html('<p class=\"description\">' + (messages.selectConnection || '') + '</p>');
+            return;
+        }
+
+        $container
+            .addClass('is-loading')
+            .html('<p class=\"description\">' + (messages.loading || '') + '</p>');
+
+        $.ajax({
+            url: settings.ajaxUrl ? settings.ajaxUrl : window.ajaxurl,
+            method: 'POST',
+            dataType: 'json',
+            data: {
+                action: 'azinsanaat_load_products',
+                nonce: settings.loadProductsNonce || '',
+                connection_id: connectionId,
+                page: page || 1,
+                search_query: searchQuery || ''
+            }
+        }).done(function (response) {
+            if (response && response.success && response.data && response.data.html) {
+                $container.html(response.data.html);
+                initCacheRefresh();
+            } else {
+                var message = response && response.data && response.data.message ? response.data.message : (messages.genericError || '');
+                $container.html('<div class=\"notice notice-error\"><p>' + message + '</p></div>');
+            }
+        }).fail(function () {
+            var message = messages.networkError || '';
+            $container.html('<div class=\"notice notice-error\"><p>' + message + '</p></div>');
+        }).always(function () {
+            $container.removeClass('is-loading');
+        });
+    }
+
     $(document).on('submit', '.azinsanaat-import-form', function (event) {
         var $form = $(this);
 
@@ -333,6 +396,49 @@
 
     $(document).ready(function () {
         initCacheRefresh();
+
+        var $connectionSelect = $('#azinsanaat-connection-id');
+        var $dynamicContainer = $('.azinsanaat-products-dynamic');
+
+        function requestProducts(pageOverride, searchOverride) {
+            var connectionId = $connectionSelect.val() || '';
+            var page = pageOverride || 1;
+            var searchQuery = typeof searchOverride === 'string'
+                ? searchOverride
+                : ($dynamicContainer.find('.azinsanaat-products-search-input').val() || '');
+
+            loadProducts(connectionId, page, searchQuery);
+        }
+
+        $(document).on('change', '#azinsanaat-connection-id', function () {
+            requestProducts(1, '');
+        });
+
+        $(document).on('submit', '.azinsanaat-products-search-form', function (event) {
+            event.preventDefault();
+            var query = $(this).find('.azinsanaat-products-search-input').val() || '';
+            requestProducts(1, query);
+        });
+
+        $(document).on('click', '.azinsanaat-products-pagination a.page-numbers', function (event) {
+            event.preventDefault();
+            var targetPage = parsePageFromLink($(this).attr('href'));
+            if (!targetPage) {
+                return;
+            }
+            requestProducts(targetPage);
+        });
+
+        if ($dynamicContainer.length) {
+            var initialConnection = $dynamicContainer.data('initialConnection') || $connectionSelect.val() || '';
+            var initialSearch = $dynamicContainer.data('initialSearch') || '';
+            var initialPage = parseInt($dynamicContainer.data('initialPage'), 10) || 1;
+
+            if (initialConnection) {
+                $connectionSelect.val(initialConnection);
+                loadProducts(initialConnection, initialPage, initialSearch);
+            }
+        }
     });
 
 })(jQuery);
