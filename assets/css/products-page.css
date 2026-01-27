@@ -27,7 +27,19 @@
     margin-top: 20px;
 }
 
-.azinsanaat-products-page .azinsanaat-connection__filters .azinsanaat-products-search-field {
+.azinsanaat-products-page .azinsanaat-products-search-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 16px;
+    margin: 20px 0;
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 6px;
+    align-items: center;
+}
+
+.azinsanaat-products-page .azinsanaat-products-search-form .azinsanaat-products-search-field {
     display: flex;
     flex: 1 1 320px;
     flex-wrap: wrap;
@@ -35,14 +47,9 @@
     align-items: center;
 }
 
-.azinsanaat-products-page .azinsanaat-connection__filters .azinsanaat-products-search-input {
+.azinsanaat-products-page .azinsanaat-products-search-form .azinsanaat-products-search-input {
     flex: 1;
     min-width: 220px;
-}
-
-.azinsanaat-products-page .azinsanaat-connection__filters .azinsanaat-products-search-description {
-    flex: 0 0 100%;
-    margin: 0;
 }
 
 .azinsanaat-products-page .azinsanaat-products-table th,
