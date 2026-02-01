@@ -473,6 +473,56 @@ if (!class_exists('Azinsanaat_Connection')) {
             return array_values(array_filter(array_map('absint', $ids)));
         }
 
+        protected static function get_cached_remote_ids_sorted_by_sales(string $connection_id): array
+        {
+            global $wpdb;
+
+            $table = self::get_remote_cache_table_name();
+            $rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT remote_id, product_data FROM {$table} WHERE connection_id = %s",
+                    sanitize_key($connection_id)
+                ),
+                ARRAY_A
+            );
+
+            if (empty($rows)) {
+                return [];
+            }
+
+            $products = [];
+            foreach ($rows as $row) {
+                $remote_id = isset($row['remote_id']) ? (int) $row['remote_id'] : 0;
+                if (!$remote_id) {
+                    continue;
+                }
+
+                $sales = 0;
+                $product_data = json_decode($row['product_data'], true);
+                if (is_array($product_data) && isset($product_data['total_sales'])) {
+                    $sales = (int) $product_data['total_sales'];
+                }
+
+                $products[] = [
+                    'id'    => $remote_id,
+                    'sales' => $sales,
+                ];
+            }
+
+            usort(
+                $products,
+                static function (array $left, array $right): int {
+                    if ($left['sales'] === $right['sales']) {
+                        return $left['id'] <=> $right['id'];
+                    }
+
+                    return $right['sales'] <=> $left['sales'];
+                }
+            );
+
+            return array_column($products, 'id');
+        }
+
         protected static function get_remote_cache_last_synced_raw(string $connection_id): string
         {
             global $wpdb;
@@ -2292,7 +2342,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             }
 
             $selected_connection_label = $selected_connection['label'];
-            $cached_remote_ids = self::get_cached_remote_ids($selected_connection_id);
+            $cached_remote_ids = self::get_cached_remote_ids_sorted_by_sales($selected_connection_id);
             $cached_products_count = count($cached_remote_ids);
             $cache_available = $cached_products_count > 0;
             $client = self::get_api_client($selected_connection_id);
