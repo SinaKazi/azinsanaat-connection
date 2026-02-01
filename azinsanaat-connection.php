@@ -454,6 +454,25 @@ if (!class_exists('Azinsanaat_Connection')) {
             return (int) $count;
         }
 
+        protected static function get_cached_remote_ids(string $connection_id): array
+        {
+            global $wpdb;
+
+            $table = self::get_remote_cache_table_name();
+            $ids = $wpdb->get_col(
+                $wpdb->prepare(
+                    "SELECT remote_id FROM {$table} WHERE connection_id = %s ORDER BY synced_at DESC, id DESC",
+                    sanitize_key($connection_id)
+                )
+            );
+
+            if (!is_array($ids)) {
+                return [];
+            }
+
+            return array_values(array_filter(array_map('absint', $ids)));
+        }
+
         protected static function get_remote_cache_last_synced_raw(string $connection_id): string
         {
             global $wpdb;
@@ -589,7 +608,11 @@ if (!class_exists('Azinsanaat_Connection')) {
                         continue;
                     }
 
-                    self::upsert_remote_cache($connection_id, $remote_id, $product);
+                    $stub = [
+                        'id' => $remote_id,
+                    ];
+
+                    self::upsert_remote_cache($connection_id, $remote_id, $stub);
                 }
 
                 $has_more = count($products) === $per_page;
@@ -787,7 +810,11 @@ if (!class_exists('Azinsanaat_Connection')) {
                     continue;
                 }
 
-                self::upsert_remote_cache($connection_id, $remote_id, $product);
+                $stub = [
+                    'id' => $remote_id,
+                ];
+
+                self::upsert_remote_cache($connection_id, $remote_id, $stub);
             }
 
             if (count($products) === $per_page) {
@@ -2265,15 +2292,15 @@ if (!class_exists('Azinsanaat_Connection')) {
             }
 
             $selected_connection_label = $selected_connection['label'];
-            $cached_products_count = self::get_cached_product_count($selected_connection_id);
+            $cached_remote_ids = self::get_cached_remote_ids($selected_connection_id);
+            $cached_products_count = count($cached_remote_ids);
             $cache_available = $cached_products_count > 0;
             $client = self::get_api_client($selected_connection_id);
             $products = [];
             $error_message = '';
             $client_error_message = '';
             $current_page = max(1, $current_page);
-            $per_page = 25;
-            $stock_filter = '';
+            $per_page = 20;
             $total_pages = 1;
             $total_remote_products_count = 0;
             $normalized_search_query = self::normalize_search_text($search_query);
@@ -2320,78 +2347,30 @@ if (!class_exists('Azinsanaat_Connection')) {
 
             if (is_wp_error($client)) {
                 $client_error_message = $client->get_error_message();
-                if (!$cache_available) {
-                    $error_message = $client_error_message;
-                }
+                $error_message = $client_error_message;
                 $client = null;
             }
 
-            if ($cache_available) {
-                $cached_products = self::get_cached_products_for_connection($selected_connection_id, $stock_filter, $normalized_search_query);
-                $filtered_products = [];
-                $connected_products = [];
+            if ($cache_available && !$error_message) {
+                $filtered_remote_ids = [];
+                $connected_remote_ids_sorted = [];
+                foreach ($cached_remote_ids as $remote_product_id) {
+                    $connection_lookup_key = $remote_product_id ? $selected_connection_id . '|' . $remote_product_id : '';
 
-                if (!empty($cached_products)) {
-                    usort($cached_products, function ($item_a, $item_b) {
-                        $priority = [
-                            'instock'     => 0,
-                            'onbackorder' => 1,
-                            'outofstock'  => 2,
-                        ];
-
-                        $a_status = isset($item_a['stock_status']) ? (string) $item_a['stock_status'] : '';
-                        $b_status = isset($item_b['stock_status']) ? (string) $item_b['stock_status'] : '';
-                        $a_priority = $priority[$a_status] ?? 3;
-                        $b_priority = $priority[$b_status] ?? 3;
-
-                        if ($a_priority === $b_priority) {
-                            return 0;
-                        }
-
-                        return ($a_priority < $b_priority) ? -1 : 1;
-                    });
-
-                    foreach ($cached_products as $product) {
-                        $remote_product_id = isset($product['id']) ? (int) $product['id'] : 0;
-                        $connection_lookup_key = $remote_product_id ? $selected_connection_id . '|' . $remote_product_id : '';
-
-                        if ($connection_lookup_key && isset($connected_remote_ids[$connection_lookup_key])) {
-                            $connected_products[] = $product;
-                        } else {
-                            $filtered_products[] = $product;
-                        }
+                    if ($connection_lookup_key && isset($connected_remote_ids[$connection_lookup_key])) {
+                        $connected_remote_ids_sorted[] = $remote_product_id;
+                    } else {
+                        $filtered_remote_ids[] = $remote_product_id;
                     }
                 }
 
                 $total_remote_products_count = $cached_products_count;
 
-                usort($filtered_products, function ($product_a, $product_b) {
-                    $a_sales = isset($product_a['total_sales']) ? (int) $product_a['total_sales'] : 0;
-                    $b_sales = isset($product_b['total_sales']) ? (int) $product_b['total_sales'] : 0;
-
-                    if ($a_sales === $b_sales) {
-                        return 0;
-                    }
-
-                    return ($a_sales < $b_sales) ? 1 : -1;
-                });
-
-                usort($connected_products, function ($product_a, $product_b) {
-                    $a_sales = isset($product_a['total_sales']) ? (int) $product_a['total_sales'] : 0;
-                    $b_sales = isset($product_b['total_sales']) ? (int) $product_b['total_sales'] : 0;
-
-                    if ($a_sales === $b_sales) {
-                        return 0;
-                    }
-
-                    return ($a_sales < $b_sales) ? 1 : -1;
-                });
-
-                if (!empty($connected_products)) {
-                    $filtered_products = array_merge($filtered_products, $connected_products);
+                if (!empty($connected_remote_ids_sorted)) {
+                    $filtered_remote_ids = array_merge($filtered_remote_ids, $connected_remote_ids_sorted);
                 }
 
-                $available_remote_products_count = count($filtered_products);
+                $available_remote_products_count = count($filtered_remote_ids);
                 $total_pages = max(1, (int) ceil($available_remote_products_count / $per_page));
 
                 if ($current_page > $total_pages) {
@@ -2399,7 +2378,39 @@ if (!class_exists('Azinsanaat_Connection')) {
                 }
 
                 $offset = ($current_page - 1) * $per_page;
-                $products = array_slice($filtered_products, $offset, $per_page);
+                $paged_remote_ids = array_slice($filtered_remote_ids, $offset, $per_page);
+                $product_fetch_error = '';
+
+                foreach ($paged_remote_ids as $remote_product_id) {
+                    if (!$remote_product_id) {
+                        continue;
+                    }
+
+                    $payload = self::get_remote_product_payload($remote_product_id, $selected_connection_id, $client, true);
+
+                    if (is_wp_error($payload)) {
+                        $product_fetch_error = $payload->get_error_message();
+                        continue;
+                    }
+
+                    $product = $payload['product'] ?? [];
+                    if (!is_array($product) || empty($product)) {
+                        continue;
+                    }
+
+                    $product['__cached_variations'] = $payload['variations'] ?? [];
+                    $product['__search_text'] = self::build_product_search_text($product);
+
+                    if ($normalized_search_query !== '' && !self::search_text_matches_query($product['__search_text'], $normalized_search_query)) {
+                        continue;
+                    }
+
+                    $products[] = $product;
+                }
+
+                if ($product_fetch_error && !$error_message && empty($products)) {
+                    $error_message = $product_fetch_error;
+                }
             }
 
             if (!$error_message && !empty($products)) {
@@ -3708,13 +3719,29 @@ if (!class_exists('Azinsanaat_Connection')) {
             return $output;
         }
 
+        protected static function is_remote_product_stub(array $product): bool
+        {
+            if (!isset($product['id'])) {
+                return false;
+            }
+
+            $allowed_keys = ['id'];
+            $keys = array_keys($product);
+
+            if (count($keys) === 1 && $keys[0] === 'id') {
+                return true;
+            }
+
+            return empty(array_diff($keys, $allowed_keys));
+        }
+
         protected static function get_remote_product_payload(int $remote_id, string $connection_id, $client = null, bool $force_remote = false)
         {
             $connection_id = sanitize_key($connection_id);
             $cached = null;
             if (!$force_remote) {
                 $cached = self::get_cached_remote_product($connection_id, $remote_id);
-                if ($cached && !empty($cached['product'])) {
+                if ($cached && !empty($cached['product']) && !self::is_remote_product_stub($cached['product'])) {
                     return $cached;
                 }
             }
@@ -5064,6 +5091,7 @@ if (!class_exists('Azinsanaat_Connection')) {
         public static function run_scheduled_sync(?string $connection_id = null): void
         {
             $connection_id = $connection_id ? sanitize_key($connection_id) : '';
+            $cached_ids_by_connection = [];
 
             if ($connection_id) {
                 $cache_result = self::refresh_remote_products_cache($connection_id);
@@ -5113,11 +5141,25 @@ if (!class_exists('Azinsanaat_Connection')) {
                     continue;
                 }
 
+                if (!isset($cached_ids_by_connection[$product_connection_id])) {
+                    self::ensure_products_cache($product_connection_id);
+                    $cached_ids_by_connection[$product_connection_id] = array_fill_keys(
+                        self::get_cached_remote_ids($product_connection_id),
+                        true
+                    );
+                }
+
+                if (empty($cached_ids_by_connection[$product_connection_id][$remote_id])) {
+                    continue;
+                }
+
                 $result = self::sync_product_with_remote($product_id, $remote_id, $product_connection_id);
 
                 if (is_wp_error($result)) {
                     error_log(sprintf('Azinsanaat Connection: sync failed for product #%1$d - %2$s', $product_id, $result->get_error_message()));
                 }
+
+                sleep(2);
             }
         }
 
