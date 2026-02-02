@@ -20,6 +20,7 @@ if (!class_exists('Azinsanaat_Connection')) {
         const NONCE_ACTION_IMPORT = 'azinsanaat_connection_import_product';
         const NONCE_ACTION_META = 'azinsanaat_connection_product_meta';
         const NONCE_ACTION_MANUAL_SYNC = 'azinsanaat_connection_manual_sync';
+        const NONCE_ACTION_MANUAL_SYNC_BULK = 'azinsanaat_connection_manual_sync_bulk';
         const NONCE_ACTION_REFRESH_CACHE = 'azinsanaat_connection_refresh_cache';
         const NONCE_ACTION_CLEAR_CACHE = 'azinsanaat_connection_clear_cache';
         const NONCE_ACTION_LOAD_PRODUCTS = 'azinsanaat_connection_load_products';
@@ -72,6 +73,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             add_action('wp_ajax_azinsanaat_refresh_cache', [__CLASS__, 'handle_refresh_cache_ajax']);
             add_action('wp_ajax_azinsanaat_clear_cache', [__CLASS__, 'handle_clear_cache_ajax']);
             add_action('wp_ajax_azinsanaat_load_products', [__CLASS__, 'ajax_load_products']);
+            add_action('wp_ajax_azinsanaat_manual_sync_bulk', [__CLASS__, 'ajax_manual_sync_bulk']);
         }
 
         /**
@@ -141,6 +143,15 @@ if (!class_exists('Azinsanaat_Connection')) {
                 self::get_required_capability(),
                 'azinsanaat-connection-linked-products',
                 [__CLASS__, 'render_connected_products_page']
+            );
+
+            add_submenu_page(
+                'azinsanaat-connection',
+                __('سینک دستی', 'azinsanaat-connection'),
+                __('سینک دستی', 'azinsanaat-connection'),
+                self::get_required_capability(),
+                'azinsanaat-connection-manual-sync',
+                [__CLASS__, 'render_manual_sync_page']
             );
         }
 
@@ -1975,6 +1986,45 @@ if (!class_exists('Azinsanaat_Connection')) {
                 );
             }
 
+            $is_manual_sync_page = $hook === 'azinsanaat-connection_page_azinsanaat-connection-manual-sync'
+                || $page === 'azinsanaat-connection-manual-sync';
+
+            if ($is_manual_sync_page) {
+                $manual_sync_css_file = plugin_dir_path(__FILE__) . 'assets/css/manual-sync.css';
+                $manual_sync_css_version = file_exists($manual_sync_css_file) ? (string) filemtime($manual_sync_css_file) : '1.0.0';
+
+                wp_enqueue_style(
+                    'azinsanaat-manual-sync',
+                    plugin_dir_url(__FILE__) . 'assets/css/manual-sync.css',
+                    [],
+                    $manual_sync_css_version
+                );
+
+                wp_enqueue_script(
+                    'azinsanaat-manual-sync',
+                    plugin_dir_url(__FILE__) . 'assets/js/manual-sync.js',
+                    ['jquery'],
+                    '1.0.0',
+                    true
+                );
+
+                wp_localize_script(
+                    'azinsanaat-manual-sync',
+                    'AzinsanaatManualSync',
+                    [
+                        'ajaxUrl' => admin_url('admin-ajax.php'),
+                        'nonce'   => wp_create_nonce(self::NONCE_ACTION_MANUAL_SYNC_BULK),
+                        'messages' => [
+                            'missingConnection' => __('ابتدا یک وب‌سرویس را انتخاب کنید.', 'azinsanaat-connection'),
+                            'syncing'           => __('در حال همگام‌سازی محصولات...', 'azinsanaat-connection'),
+                            'syncDone'          => __('همگام‌سازی به پایان رسید.', 'azinsanaat-connection'),
+                            'syncError'         => __('خطا در همگام‌سازی محصولات.', 'azinsanaat-connection'),
+                            'noProducts'        => __('هیچ محصولی برای همگام‌سازی یافت نشد.', 'azinsanaat-connection'),
+                        ],
+                    ]
+                );
+            }
+
             if (!in_array($hook, ['post.php', 'post-new.php'], true)) {
                 return;
             }
@@ -3134,6 +3184,48 @@ if (!class_exists('Azinsanaat_Connection')) {
             <?php
         }
 
+        public static function render_manual_sync_page(): void
+        {
+            if (!self::current_user_can_manage_plugin()) {
+                return;
+            }
+
+            $connections = self::get_connections_indexed();
+            ?>
+            <div class="wrap azinsanaat-manual-sync-page">
+                <h1><?php esc_html_e('سینک دستی', 'azinsanaat-connection'); ?></h1>
+                <p class="description"><?php esc_html_e('با انتخاب وب‌سرویس، محصولات متصل به صورت تک‌به‌تک از API دریافت و قیمت و موجودی به‌روزرسانی می‌شود.', 'azinsanaat-connection'); ?></p>
+                <form class="azinsanaat-manual-sync-form" action="#" method="post">
+                    <label for="azinsanaat-manual-sync-connection" class="screen-reader-text"><?php esc_html_e('انتخاب وب‌سرویس', 'azinsanaat-connection'); ?></label>
+                    <select id="azinsanaat-manual-sync-connection" name="connection_id">
+                        <option value=""><?php esc_html_e('انتخاب وب‌سرویس...', 'azinsanaat-connection'); ?></option>
+                        <?php foreach ($connections as $connection) : ?>
+                            <option value="<?php echo esc_attr($connection['id']); ?>"><?php echo esc_html($connection['label']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <button type="button" class="button button-primary" id="azinsanaat-manual-sync-start">
+                        <?php esc_html_e('سینک دستی', 'azinsanaat-connection'); ?>
+                    </button>
+                    <span class="spinner" aria-hidden="true"></span>
+                </form>
+                <div class="notice notice-info inline azinsanaat-manual-sync-status" role="status" aria-live="polite" style="display:none;">
+                    <p></p>
+                </div>
+                <div class="azinsanaat-manual-sync-stats">
+                    <span>
+                        <?php esc_html_e('تعداد سینک‌شده:', 'azinsanaat-connection'); ?>
+                        <strong class="azinsanaat-manual-sync-synced">0</strong>
+                    </span>
+                    <span>
+                        <?php esc_html_e('تعداد باقی‌مانده:', 'azinsanaat-connection'); ?>
+                        <strong class="azinsanaat-manual-sync-remaining">0</strong>
+                    </span>
+                </div>
+                <div class="azinsanaat-manual-sync-errors" aria-live="polite"></div>
+            </div>
+            <?php
+        }
+
         /**
          * Handles importing a product from remote API.
          */
@@ -3970,6 +4062,111 @@ if (!class_exists('Azinsanaat_Connection')) {
             exit;
         }
 
+        public static function ajax_manual_sync_bulk(): void
+        {
+            if (!self::current_user_can_manage_plugin()) {
+                wp_send_json_error(['message' => __('شما اجازه دسترسی ندارید.', 'azinsanaat-connection')], 403);
+            }
+
+            check_ajax_referer(self::NONCE_ACTION_MANUAL_SYNC_BULK, 'nonce');
+
+            $connection_id = isset($_POST['connection_id']) ? sanitize_key(wp_unslash($_POST['connection_id'])) : '';
+            if ($connection_id === '') {
+                wp_send_json_error(['message' => __('ابتدا یک وب‌سرویس معتبر انتخاب کنید.', 'azinsanaat-connection')], 400);
+            }
+
+            $connections = self::get_connections_indexed();
+            if (!isset($connections[$connection_id])) {
+                wp_send_json_error(['message' => __('وب‌سرویس انتخاب‌شده معتبر نیست.', 'azinsanaat-connection')], 400);
+            }
+
+            $offset = isset($_POST['offset']) ? absint($_POST['offset']) : 0;
+            $limit = 1;
+
+            $query = new WP_Query([
+                'post_type'      => 'product',
+                'post_status'    => ['publish', 'pending', 'draft', 'private'],
+                'posts_per_page' => $limit,
+                'offset'         => $offset,
+                'fields'         => 'ids',
+                'no_found_rows'  => false,
+                'meta_query'     => [
+                    [
+                        'key'     => self::META_REMOTE_ID,
+                        'compare' => 'EXISTS',
+                    ],
+                    [
+                        'key'   => self::META_REMOTE_CONNECTION,
+                        'value' => $connection_id,
+                    ],
+                ],
+                'orderby'        => 'ID',
+                'order'          => 'ASC',
+            ]);
+
+            $total = (int) $query->found_posts;
+
+            if ($total === 0) {
+                wp_send_json_success([
+                    'total'      => 0,
+                    'synced'     => 0,
+                    'remaining'  => 0,
+                    'next_offset'=> 0,
+                    'processed'  => 0,
+                    'done'       => true,
+                    'message'    => __('هیچ محصولی برای همگام‌سازی یافت نشد.', 'azinsanaat-connection'),
+                ]);
+            }
+
+            $product_ids = $query->posts;
+            if (empty($product_ids)) {
+                wp_send_json_success([
+                    'total'      => $total,
+                    'synced'     => 0,
+                    'remaining'  => max($total - $offset, 0),
+                    'next_offset'=> $offset,
+                    'processed'  => 0,
+                    'done'       => true,
+                    'message'    => __('همه محصولات همگام‌سازی شدند.', 'azinsanaat-connection'),
+                ]);
+            }
+
+            $success_count = 0;
+            $failed_count = 0;
+            $errors = [];
+
+            foreach ($product_ids as $product_id) {
+                $remote_id = (int) get_post_meta($product_id, self::META_REMOTE_ID, true);
+                if (!$remote_id) {
+                    $failed_count++;
+                    $errors[] = sprintf(__('شناسه وب‌سرویس برای محصول #%d یافت نشد.', 'azinsanaat-connection'), $product_id);
+                    continue;
+                }
+
+                $result = self::sync_product_with_remote($product_id, $remote_id, $connection_id, true);
+                if (is_wp_error($result)) {
+                    $failed_count++;
+                    $errors[] = $result->get_error_message();
+                } else {
+                    $success_count++;
+                }
+            }
+
+            $next_offset = $offset + count($product_ids);
+            $remaining = max($total - $next_offset, 0);
+
+            wp_send_json_success([
+                'total'       => $total,
+                'synced'      => $success_count,
+                'remaining'   => $remaining,
+                'next_offset' => $next_offset,
+                'processed'   => count($product_ids),
+                'done'        => $remaining === 0,
+                'failed'      => $failed_count,
+                'errors'      => $errors,
+            ]);
+        }
+
         protected static function set_featured_image_from_url(int $post_id, string $image_url)
         {
             $attachment_id = self::sideload_product_image($post_id, $image_url);
@@ -4595,7 +4792,7 @@ if (!class_exists('Azinsanaat_Connection')) {
             ]);
         }
 
-        protected static function sync_product_with_remote(int $product_id, int $remote_id, ?string $connection_id = null)
+        protected static function sync_product_with_remote(int $product_id, int $remote_id, ?string $connection_id = null, bool $force_remote = false)
         {
             $connection_id = $connection_id ? sanitize_key($connection_id) : '';
             if (!$connection_id) {
@@ -4611,7 +4808,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                 return $client;
             }
 
-            $payload = self::get_remote_product_payload($remote_id, $connection_id, $client);
+            $payload = self::get_remote_product_payload($remote_id, $connection_id, $client, $force_remote);
             if (is_wp_error($payload)) {
                 if ($payload->get_error_code() === 'azinsanaat_remote_not_found') {
                     self::apply_missing_remote_product_state($product_id);
