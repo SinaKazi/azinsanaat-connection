@@ -4876,6 +4876,12 @@ if (!class_exists('Azinsanaat_Connection')) {
                 update_post_meta($product_id, '_stock_status', sanitize_text_field($data['stock_status']));
             }
 
+            if (($data['stock_status'] ?? '') === 'outofstock') {
+                delete_post_meta($product_id, '_regular_price');
+                delete_post_meta($product_id, '_sale_price');
+                delete_post_meta($product_id, '_price');
+            }
+
             if (array_key_exists('stock_quantity', $data) && $data['stock_quantity'] !== null && $data['stock_quantity'] !== '') {
                 $quantity = (int) $data['stock_quantity'];
                 update_post_meta($product_id, '_manage_stock', 'yes');
