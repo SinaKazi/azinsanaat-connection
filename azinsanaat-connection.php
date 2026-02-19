@@ -28,6 +28,8 @@ if (!class_exists('Azinsanaat_Connection')) {
         const META_REMOTE_ID = '_azinsanaat_remote_id';
         const META_LAST_SYNC = '_azinsanaat_last_synced';
         const META_REMOTE_CONNECTION = '_azinsanaat_remote_connection';
+        const META_WEBSERVICE_ID = '_azinsanaat_webservice_id';
+        const META_WEBSERVICE_PRODUCT_ID = '_azinsanaat_webservice_product_id';
         const NOTICE_CONNECTED_PRODUCTS = 'azinsanaat_connection_connected_notice';
         const CAPABILITY = 'manage_azinsanaat_connection';
         const REMOTE_CACHE_DB_VERSION_OPTION = 'azinsanaat_remote_cache_db_version';
@@ -968,9 +970,16 @@ if (!class_exists('Azinsanaat_Connection')) {
                         ? self::sanitize_sync_interval($connection['sync_interval'])
                         : $default_connection_interval;
                     $prices_in_rial = !empty($connection['prices_in_rial']);
+                    $webservice_id = isset($connection['webservice_id'])
+                        ? sanitize_text_field((string) $connection['webservice_id'])
+                        : '';
+                    if ($webservice_id === '') {
+                        $webservice_id = $id;
+                    }
 
                     $connections[] = [
                         'id'              => $id,
+                        'webservice_id'   => $webservice_id,
                         'label'           => $label,
                         'store_url'       => $store_url,
                         'consumer_key'    => $consumer_key,
@@ -992,6 +1001,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                 if ($legacy_url && $legacy_key && $legacy_secret) {
                     $connections[] = [
                         'id'              => 'default',
+                        'webservice_id'   => 'default',
                         'label'           => wp_parse_url($legacy_url, PHP_URL_HOST) ?: $legacy_url,
                         'store_url'       => $legacy_url,
                         'consumer_key'    => $legacy_key,
@@ -1327,9 +1337,14 @@ if (!class_exists('Azinsanaat_Connection')) {
                 ? self::sanitize_sync_interval($connection['sync_interval'])
                 : ($fallback_interval ? self::sanitize_sync_interval($fallback_interval) : '15min');
             $prices_in_rial = !empty($connection['prices_in_rial']);
+            $webservice_id = isset($connection['webservice_id']) ? sanitize_text_field((string) $connection['webservice_id']) : '';
+            if ($webservice_id === '') {
+                $webservice_id = $id;
+            }
 
             return [
                 'id'              => $id,
+                'webservice_id'   => $webservice_id,
                 'label'           => $label,
                 'store_url'       => $store_url,
                 'consumer_key'    => $consumer_key,
@@ -1426,6 +1441,46 @@ if (!class_exists('Azinsanaat_Connection')) {
         {
             $connection = self::get_connection_or_default('');
             return $connection ? $connection['id'] : '';
+        }
+
+        protected static function get_connection_webservice_id(?string $connection_id): string
+        {
+            $connection = self::get_connection_or_default($connection_id);
+            if (!$connection) {
+                return '';
+            }
+
+            $webservice_id = isset($connection['webservice_id'])
+                ? sanitize_text_field((string) $connection['webservice_id'])
+                : '';
+
+            if ($webservice_id !== '') {
+                return $webservice_id;
+            }
+
+            return isset($connection['id']) ? sanitize_key((string) $connection['id']) : '';
+        }
+
+        protected static function update_remote_product_meta(int $post_id, int $remote_id, string $connection_id): void
+        {
+            update_post_meta($post_id, self::META_REMOTE_ID, $remote_id);
+            update_post_meta($post_id, self::META_REMOTE_CONNECTION, $connection_id);
+            update_post_meta($post_id, self::META_WEBSERVICE_PRODUCT_ID, $remote_id);
+
+            $webservice_id = self::get_connection_webservice_id($connection_id);
+            if ($webservice_id === '') {
+                $webservice_id = $connection_id;
+            }
+
+            update_post_meta($post_id, self::META_WEBSERVICE_ID, $webservice_id);
+        }
+
+        protected static function clear_remote_product_meta(int $post_id): void
+        {
+            delete_post_meta($post_id, self::META_REMOTE_ID);
+            delete_post_meta($post_id, self::META_REMOTE_CONNECTION);
+            delete_post_meta($post_id, self::META_WEBSERVICE_ID);
+            delete_post_meta($post_id, self::META_WEBSERVICE_PRODUCT_ID);
         }
 
         protected static function should_convert_prices(?string $connection_id): bool
@@ -1561,6 +1616,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                     </p>
                     <h2><?php esc_html_e('اتصالات وب‌سرویس', 'azinsanaat-connection'); ?></h2>
                     <p class="description"><?php esc_html_e('اطلاعات اتصال API هر فروشگاه ووکامرسی را در این بخش وارد کنید.', 'azinsanaat-connection'); ?></p>
+                    <p class="description"><?php esc_html_e('برای دیدن اینکه هر وب‌سرویس چه شناسه‌ای دارد، به فیلد «شناسه وب‌سرویس» هر اتصال نگاه کنید. همین مقدار در متای محصولات متصل ذخیره می‌شود.', 'azinsanaat-connection'); ?></p>
                     <div id="azinsanaat-connections-container" class="azinsanaat-connections-container">
                         <?php if ($has_connections) : ?>
                             <?php foreach ($connections as $connection) :
@@ -1569,6 +1625,11 @@ if (!class_exists('Azinsanaat_Connection')) {
                                 ?>
                                 <div class="azinsanaat-connection-item">
                                     <input type="hidden" name="<?php echo esc_attr($option_key); ?>[connections][<?php echo esc_attr($connection['id']); ?>][id]" value="<?php echo esc_attr($connection['id']); ?>">
+                                    <p>
+                                        <label for="azinsanaat-connection-webservice-id-<?php echo $connection_id; ?>"><?php esc_html_e('شناسه وب‌سرویس', 'azinsanaat-connection'); ?></label>
+                                        <input id="azinsanaat-connection-webservice-id-<?php echo $connection_id; ?>" type="text" class="regular-text" name="<?php echo esc_attr($option_key); ?>[connections][<?php echo esc_attr($connection['id']); ?>][webservice_id]" value="<?php echo esc_attr($connection['webservice_id'] ?? $connection['id']); ?>">
+                                        <span class="description"><?php esc_html_e('این شناسه داخل متای محصولاتِ متصل به این وب‌سرویس ذخیره می‌شود.', 'azinsanaat-connection'); ?></span>
+                                    </p>
                                     <p>
                                         <label for="azinsanaat-connection-label-<?php echo $connection_id; ?>"><?php esc_html_e('عنوان اتصال', 'azinsanaat-connection'); ?></label>
                                         <input id="azinsanaat-connection-label-<?php echo $connection_id; ?>" type="text" class="regular-text" name="<?php echo esc_attr($option_key); ?>[connections][<?php echo esc_attr($connection['id']); ?>][label]" value="<?php echo esc_attr($connection['label']); ?>">
@@ -1723,6 +1784,11 @@ if (!class_exists('Azinsanaat_Connection')) {
                 <script type="text/html" id="azinsanaat-connection-template">
                     <div class="azinsanaat-connection-item">
                         <input type="hidden" name="<?php echo esc_attr($option_key); ?>[connections][__key__][id]" value="__key__">
+                        <p>
+                            <label for="azinsanaat-connection-webservice-id-__key__"><?php esc_html_e('شناسه وب‌سرویس', 'azinsanaat-connection'); ?></label>
+                            <input id="azinsanaat-connection-webservice-id-__key__" type="text" class="regular-text" name="<?php echo esc_attr($option_key); ?>[connections][__key__][webservice_id]" value="__key__">
+                            <span class="description"><?php esc_html_e('این شناسه داخل متای محصولاتِ متصل به این وب‌سرویس ذخیره می‌شود.', 'azinsanaat-connection'); ?></span>
+                        </p>
                         <p>
                             <label for="azinsanaat-connection-label-__key__"><?php esc_html_e('عنوان اتصال', 'azinsanaat-connection'); ?></label>
                             <input id="azinsanaat-connection-label-__key__" type="text" class="regular-text" name="<?php echo esc_attr($option_key); ?>[connections][__key__][label]" value="">
@@ -3139,6 +3205,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                             <th><?php esc_html_e('نام محصول', 'azinsanaat-connection'); ?></th>
                             <th><?php esc_html_e('اتصال', 'azinsanaat-connection'); ?></th>
                             <th><?php esc_html_e('شناسه وب‌سرویس', 'azinsanaat-connection'); ?></th>
+                            <th><?php esc_html_e('شناسه محصول وب‌سرویس', 'azinsanaat-connection'); ?></th>
                             <th><?php esc_html_e('تعداد متغیرهای متصل', 'azinsanaat-connection'); ?></th>
                             <th><?php esc_html_e('آخرین همگام‌سازی', 'azinsanaat-connection'); ?></th>
                             <th><?php esc_html_e('عملیات', 'azinsanaat-connection'); ?></th>
@@ -3147,6 +3214,11 @@ if (!class_exists('Azinsanaat_Connection')) {
                         <tbody>
                         <?php foreach ($connected_products as $index => $product_id) :
                             $remote_id = (int) get_post_meta($product_id, self::META_REMOTE_ID, true);
+                            $webservice_product_id = (int) get_post_meta($product_id, self::META_WEBSERVICE_PRODUCT_ID, true);
+                            if (!$webservice_product_id) {
+                                $webservice_product_id = $remote_id;
+                            }
+                            $webservice_id = sanitize_text_field((string) get_post_meta($product_id, self::META_WEBSERVICE_ID, true));
                             $last_sync = self::get_formatted_sync_time($product_id);
                             $variation_count = self::get_connected_variations_count($product_id);
                             $connection_id = get_post_meta($product_id, self::META_REMOTE_CONNECTION, true);
@@ -3154,6 +3226,12 @@ if (!class_exists('Azinsanaat_Connection')) {
                             if ($connection_id) {
                                 $connection_id = sanitize_key($connection_id);
                                 $connection_label = $connection_map[$connection_id] ?? $connection_id;
+                            }
+                            if ($webservice_id === '' && $connection_id !== '') {
+                                $connection_data = $available_connections[$connection_id] ?? null;
+                                if (is_array($connection_data) && !empty($connection_data['webservice_id'])) {
+                                    $webservice_id = sanitize_text_field((string) $connection_data['webservice_id']);
+                                }
                             }
                             ?>
                             <tr>
@@ -3164,7 +3242,8 @@ if (!class_exists('Azinsanaat_Connection')) {
                                     </a>
                                 </td>
                                 <td><?php echo $connection_label ? esc_html($connection_label) : '—'; ?></td>
-                                <td><?php echo $remote_id ? esc_html($remote_id) : '—'; ?></td>
+                                <td><?php echo $webservice_id !== '' ? esc_html($webservice_id) : '—'; ?></td>
+                                <td><?php echo $webservice_product_id ? esc_html($webservice_product_id) : '—'; ?></td>
                                 <td><?php echo esc_html($variation_count); ?></td>
                                 <td><?php echo $last_sync ? esc_html($last_sync) : '—'; ?></td>
                                 <td>
@@ -3764,10 +3843,8 @@ if (!class_exists('Azinsanaat_Connection')) {
                 }
 
                 if ($connection_id) {
-                    update_post_meta($variation_id, self::META_REMOTE_CONNECTION, sanitize_key($connection_id));
+                    self::update_remote_product_meta($variation_id, $remote_variation_id, sanitize_key($connection_id));
                 }
-
-                update_post_meta($variation_id, self::META_REMOTE_ID, $remote_variation_id);
 
                 $remote_data = $remote_variations_map[$remote_variation_id] ?? [];
                 if (!empty($remote_data)) {
@@ -4282,6 +4359,8 @@ if (!class_exists('Azinsanaat_Connection')) {
             $has_connections = !empty($connections);
             $current_connection_id = self::get_product_connection_id($post->ID);
             $remote_id = get_post_meta($post->ID, self::META_REMOTE_ID, true);
+            $current_webservice_id = sanitize_text_field((string) get_post_meta($post->ID, self::META_WEBSERVICE_ID, true));
+            $current_webservice_product_id = (int) get_post_meta($post->ID, self::META_WEBSERVICE_PRODUCT_ID, true);
             $last_sync = get_post_meta($post->ID, self::META_LAST_SYNC, true);
 
             wp_nonce_field('azinsanaat_save_product_meta', 'azinsanaat_product_meta_nonce');
@@ -4311,6 +4390,8 @@ if (!class_exists('Azinsanaat_Connection')) {
                 <div class="azinsanaat-meta-results">
                     <div class="azinsanaat-meta-static">
                         <p><strong><?php esc_html_e('شناسه متصل فعلی:', 'azinsanaat-connection'); ?></strong> <span class="azinsanaat-current-remote-id"><?php echo $remote_id ? esc_html($remote_id) : '—'; ?></span></p>
+                        <p><strong><?php esc_html_e('شناسه وب‌سرویس فعلی:', 'azinsanaat-connection'); ?></strong> <span><?php echo $current_webservice_id !== '' ? esc_html($current_webservice_id) : '—'; ?></span></p>
+                        <p><strong><?php esc_html_e('شناسه محصول وب‌سرویس:', 'azinsanaat-connection'); ?></strong> <span><?php echo $current_webservice_product_id ? esc_html($current_webservice_product_id) : '—'; ?></span></p>
                         <?php
                         $formatted = '';
                         if ($last_sync) {
@@ -4394,9 +4475,8 @@ if (!class_exists('Azinsanaat_Connection')) {
             $remote_id = isset($_POST['azinsanaat_remote_product_id']) ? absint(wp_unslash($_POST['azinsanaat_remote_product_id'])) : 0;
 
             if (!$remote_id) {
-                delete_post_meta($post_id, self::META_REMOTE_ID);
+                self::clear_remote_product_meta($post_id);
                 delete_post_meta($post_id, self::META_LAST_SYNC);
-                delete_post_meta($post_id, self::META_REMOTE_CONNECTION);
                 return;
             }
 
@@ -4410,8 +4490,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                 return;
             }
 
-            update_post_meta($post_id, self::META_REMOTE_ID, $remote_id);
-            update_post_meta($post_id, self::META_REMOTE_CONNECTION, $connection_id);
+            self::update_remote_product_meta($post_id, $remote_id, $connection_id);
 
             $result = self::sync_product_with_remote($post_id, $remote_id, $connection_id);
 
@@ -4617,8 +4696,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                 wp_send_json_error(['message' => __('هیچ اتصال معتبری انتخاب نشده است.', 'azinsanaat-connection')]);
             }
 
-            update_post_meta($product_id, self::META_REMOTE_ID, $remote_id);
-            update_post_meta($product_id, self::META_REMOTE_CONNECTION, $connection_id);
+            self::update_remote_product_meta($product_id, $remote_id, $connection_id);
 
             $result = self::sync_product_with_remote($product_id, $remote_id, $connection_id);
             if (is_wp_error($result)) {
@@ -4686,8 +4764,7 @@ if (!class_exists('Azinsanaat_Connection')) {
 
                 $used_local_variations[] = $local_variation_id;
 
-                update_post_meta($local_variation_id, self::META_REMOTE_ID, $remote_variation_id);
-                update_post_meta($local_variation_id, self::META_REMOTE_CONNECTION, $connection_id);
+                self::update_remote_product_meta($local_variation_id, $remote_variation_id, $connection_id);
 
                 $result = self::sync_variation_with_remote($local_variation_id, $remote_id, $remote_variation_id, $connection_id);
                 if (is_wp_error($result)) {
@@ -4701,8 +4778,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                 wp_send_json_error(['message' => __('حداقل یک متغیر باید انتخاب شود.', 'azinsanaat-connection')]);
             }
 
-            update_post_meta($product_id, self::META_REMOTE_ID, $remote_id);
-            update_post_meta($product_id, self::META_REMOTE_CONNECTION, $connection_id);
+            self::update_remote_product_meta($product_id, $remote_id, $connection_id);
             update_post_meta($product_id, self::META_LAST_SYNC, current_time('timestamp'));
 
             if (function_exists('wc_delete_product_transients')) {
@@ -4765,15 +4841,12 @@ if (!class_exists('Azinsanaat_Connection')) {
             ]);
 
             foreach ($existing_variations as $existing_variation_id) {
-                delete_post_meta($existing_variation_id, self::META_REMOTE_ID);
+                self::clear_remote_product_meta($existing_variation_id);
                 delete_post_meta($existing_variation_id, self::META_LAST_SYNC);
-                delete_post_meta($existing_variation_id, self::META_REMOTE_CONNECTION);
             }
 
-            update_post_meta($variation_id, self::META_REMOTE_ID, $remote_id);
-            update_post_meta($variation_id, self::META_REMOTE_CONNECTION, $connection_id);
-            update_post_meta($product_id, self::META_REMOTE_ID, $remote_id);
-            update_post_meta($product_id, self::META_REMOTE_CONNECTION, $connection_id);
+            self::update_remote_product_meta($variation_id, $remote_id, $connection_id);
+            self::update_remote_product_meta($product_id, $remote_id, $connection_id);
 
             $result = self::sync_product_with_remote($product_id, $remote_id, $connection_id);
             if (is_wp_error($result)) {
@@ -4813,7 +4886,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                 if ($payload->get_error_code() === 'azinsanaat_remote_not_found') {
                     self::apply_missing_remote_product_state($product_id);
                     update_post_meta($product_id, self::META_LAST_SYNC, current_time('timestamp'));
-                    update_post_meta($product_id, self::META_REMOTE_CONNECTION, $connection_id);
+                    self::update_remote_product_meta($product_id, $remote_id, $connection_id);
 
                     if (function_exists('wc_delete_product_transients')) {
                         wc_delete_product_transients($product_id);
@@ -4913,7 +4986,7 @@ if (!class_exists('Azinsanaat_Connection')) {
                 wc_delete_product_transients($product_id);
             }
 
-            update_post_meta($product_id, self::META_REMOTE_CONNECTION, $connection_id);
+            self::update_remote_product_meta($product_id, $remote_id, $connection_id);
             return true;
         }
 
@@ -4964,6 +5037,8 @@ if (!class_exists('Azinsanaat_Connection')) {
                     continue;
                 }
 
+                update_post_meta($variation_id, self::META_WEBSERVICE_ID, self::get_connection_webservice_id($connection_id));
+                update_post_meta($variation_id, self::META_WEBSERVICE_PRODUCT_ID, $remote_variation_id);
                 update_post_meta($variation_id, self::META_REMOTE_CONNECTION, $connection_id);
 
                 $cached_variation = $remote_variations_map[$remote_variation_id] ?? null;
@@ -4997,6 +5072,8 @@ if (!class_exists('Azinsanaat_Connection')) {
             }
 
             foreach ($variation_ids as $variation_id) {
+                update_post_meta($variation_id, self::META_WEBSERVICE_ID, self::get_connection_webservice_id($connection_id));
+                update_post_meta($variation_id, self::META_WEBSERVICE_PRODUCT_ID, $remote_product_id);
                 update_post_meta($variation_id, self::META_REMOTE_CONNECTION, $connection_id);
                 self::apply_simple_remote_data_to_variation($variation_id, $remote_product_data);
             }
